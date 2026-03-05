@@ -1,0 +1,16 @@
+[package]
+name = "acrm"
+version = "0.1.0"
+edition = "2024"
+description = "Agent-friendly personal CRM — CLI & TUI"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+colored = "3"
+dirs = "6"
+walkdir = "2"
+anyhow = "1"

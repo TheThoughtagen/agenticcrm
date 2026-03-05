@@ -12,6 +12,5 @@ credentials/
 .DS_Store
 Thumbs.db
 
-# Rust (future CLI)
+# Rust
 /target/
-Cargo.lock
