@@ -1,0 +1,17 @@
+# Import staging
+imports/*.csv
+imports/*.vcf
+imports/*.json
+
+# Secrets
+.env
+*.key
+credentials/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Rust (future CLI)
+/target/
+Cargo.lock

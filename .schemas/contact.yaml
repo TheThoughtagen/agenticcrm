@@ -1,0 +1,54 @@
+# Contact schema definition
+# Used by the Rust CLI for validation and by agents for understanding the format
+
+required:
+  - name
+  - id
+
+fields:
+  # Identity
+  id: string           # uuid, auto-generated
+  name: string
+  aliases: string[]
+  pronouns: string
+
+  # Contact info
+  email: string[]
+  phone: string[]
+  address: string[]
+
+  # Professional
+  company: string
+  role: string
+  industry: string
+  linkedin: string
+
+  # Social
+  twitter: string
+  facebook: string
+  instagram: string
+  github: string
+  website: string
+
+  # Personal
+  birthday: date       # YYYY-MM-DD
+  interests: string[]
+  family: string[]     # freeform, e.g. "spouse: Jane", "kid: Tom (age 5)"
+
+  # Relationship
+  how_we_met: string
+  met_date: date
+  introduced_by: string
+  relationship: enum[friend, colleague, client, mentor, mentee, acquaintance, family, other]
+  tags: string[]
+
+  # CRM
+  status: enum[active, dormant, lost-touch, archived]
+  follow_up_cadence: string   # e.g. "monthly", "quarterly", "weekly"
+  last_contacted: date
+  next_follow_up: date
+  priority: enum[high, medium, low]
+
+  # Source tracking
+  source: string       # where this contact was imported from
+  source_id: string    # ID in the source system
