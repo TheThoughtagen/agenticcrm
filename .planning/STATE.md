@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-03-06T13:52:49Z"
+status: unknown
+last_updated: "2026-03-06T13:56:01.047Z"
 progress:
-  total_phases: 3
+  total_phases: 2
   completed_phases: 1
   total_plans: 6
   completed_plans: 5
@@ -23,9 +23,9 @@ See: .planning/PROJECT.md (updated 2026-03-05)
 ## Current Position
 
 Phase: 2 of 3 (CardDAV Sync)
-Plan: 2 of 3 in current phase
+Plan: 2 of 3 in current phase (02-01 and 02-02 complete)
 Status: Executing
-Last activity: 2026-03-06 -- Completed 02-02 (CardDAV Protocol Client)
+Last activity: 2026-03-06 -- Completed 02-01 (Data Layer: vCard Mapping and Dedup)
 
 Progress: [████████░░] 83%
 
@@ -48,6 +48,7 @@ Progress: [████████░░] 83%
 - Trend: steady
 
 *Updated after each plan completion*
+| Phase 02 P01 | 6min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,13 @@ Recent decisions affecting current work:
 - 02-02: Event-based XML parsing with quick-xml Reader for WebDAV namespace handling
 - 02-02: Credential split: apple_id in config file, password in macOS Keychain only
 - 02-02: ETag quotes stripped during parsing for clean comparison
+- 02-01: calcard crate for vCard 3.0/4.0 parsing
+- 02-01: MappedContact struct separates contact data from notes for markdown body
+- 02-01: Name fallback chain: FN -> N -> ORG -> EMAIL -> Unknown Contact
+- 02-01: etag field uses serde(default) for backward compatibility
+- [Phase 02]: 02-01: calcard crate for vCard 3.0/4.0 parsing
+- [Phase 02]: 02-01: MappedContact struct separates contact data from notes for markdown body
+- [Phase 02]: 02-01: Name fallback: FN -> N -> ORG -> EMAIL -> Unknown Contact
 
 ### Pending Todos
 
@@ -84,5 +92,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-06
-Stopped at: Completed 02-02-PLAN.md (CardDAV Protocol Client)
+Stopped at: Completed 02-01-PLAN.md (Data Layer: vCard Mapping and Dedup)
 Resume file: None
