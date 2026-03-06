@@ -44,11 +44,12 @@ Plans:
   2. Re-running sync does not create duplicate files for contacts already imported
   3. Each synced contact file contains source metadata (iCloud, CardDAV UID, ETag) in frontmatter
   4. vCard fields (name, email, phone, org) are correctly mapped to CRM YAML frontmatter fields
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
+- [ ] 02-01-PLAN.md — vCard mapping, dedup logic, and etag schema changes
+- [ ] 02-02-PLAN.md — CardDAV protocol client and credential management
+- [ ] 02-03-PLAN.md — Sync CLI command wiring all modules together
 
 ### Phase 3: Interactive TUI
 **Goal**: Users can browse, search, and manage contacts interactively without leaving the terminal
@@ -74,5 +75,5 @@ Phases execute in numeric order: 1 -> 2 -> 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. CLI Foundation | 3/3 | Complete | 2026-03-05 |
-| 2. CardDAV Sync | 0/0 | Not started | - |
+| 2. CardDAV Sync | 0/3 | Planned | - |
 | 3. Interactive TUI | 0/0 | Not started | - |
