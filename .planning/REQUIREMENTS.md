@@ -25,13 +25,13 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### TUI
 
-- [ ] **TUI-01**: User can browse contacts in a scrollable table (name, company, status, last contacted)
+- [x] **TUI-01**: User can browse contacts in a scrollable table (name, company, status, last contacted)
 - [ ] **TUI-02**: User can view contact details in a split-pane layout
-- [ ] **TUI-03**: User can navigate with keyboard shortcuts (vim-style j/k, search with /)
+- [x] **TUI-03**: User can navigate with keyboard shortcuts (vim-style j/k, search with /)
 - [ ] **TUI-04**: User can see a follow-up dashboard showing overdue and upcoming contacts
 - [ ] **TUI-05**: User can search and filter contacts in real-time from the TUI
 - [ ] **TUI-06**: User can log an interaction directly from the TUI
-- [ ] **TUI-07**: TUI displays color-coded priority and status indicators
+- [x] **TUI-07**: TUI displays color-coded priority and status indicators
 
 ## v2 Requirements
 
@@ -84,13 +84,13 @@ Deferred to future release. Tracked but not in current roadmap.
 | SYNC-02 | Phase 2 | Complete |
 | SYNC-03 | Phase 2 | Complete |
 | SYNC-04 | Phase 2 | Complete |
-| TUI-01 | Phase 3 | Pending |
+| TUI-01 | Phase 3 | Complete |
 | TUI-02 | Phase 3 | Pending |
-| TUI-03 | Phase 3 | Pending |
+| TUI-03 | Phase 3 | Complete |
 | TUI-04 | Phase 3 | Pending |
 | TUI-05 | Phase 3 | Pending |
 | TUI-06 | Phase 3 | Pending |
-| TUI-07 | Phase 3 | Pending |
+| TUI-07 | Phase 3 | Complete |
 
 **Coverage:**
 - v1 requirements: 17 total
