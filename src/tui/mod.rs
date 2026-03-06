@@ -10,7 +10,7 @@ use std::panic;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::crossterm::{
-    event::{self as ct_event, Event, poll},
+    event::{Event, poll, read as read_event},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -34,7 +34,7 @@ pub fn run() -> anyhow::Result<()> {
         terminal.draw(|frame| draw(frame, &mut app))?;
 
         if poll(std::time::Duration::from_millis(250))? {
-            if let Event::Key(key) = ct_event::read()? {
+            if let Event::Key(key) = read_event()? {
                 if let Some(msg) = handle_key(&app, key) {
                     app.update(msg);
                 }
