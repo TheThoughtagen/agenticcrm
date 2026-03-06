@@ -64,6 +64,9 @@ Recent decisions affecting current work:
 - 01-01: New contacts generated from template to preserve YAML comments
 - 01-03: Write directly to cf.path instead of store::write_contact for existing contacts
 - 01-03: next_follow_up lives in log.rs (only consumer), empty cadence returns None not error
+- 01-02: Edit uses --set key=value repeatable flag rather than individual per-field flags
+- 01-02: find_single_contact extracted to store.rs as shared helper for partial name matching
+- 01-02: Archive writes directly to file system (different target dir than store::write_contact)
 
 ### Pending Todos
 
@@ -77,5 +80,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-05
-Stopped at: Completed 01-03-PLAN.md (Cadence Follow-up)
+Stopped at: Completed 01-02-PLAN.md (Edit, Delete, Archive Commands)
 Resume file: None

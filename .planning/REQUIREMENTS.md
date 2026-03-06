@@ -10,10 +10,10 @@ Requirements for initial release. Each maps to roadmap phases.
 ### CLI Foundation
 
 - [x] **CLI-01**: User can get JSON output from any CLI command via `--format json`
-- [ ] **CLI-02**: User can edit contact frontmatter fields from CLI (`acrm edit "name" --field value`)
+- [x] **CLI-02**: User can edit contact frontmatter fields from CLI (`acrm edit "name" --field value`)
 - [x] **CLI-03**: Contact files survive round-trip serialization without losing unknown fields, comments, or field order
 - [x] **CLI-04**: CLI validates required fields, enum values, and date formats before writing contact files
-- [ ] **CLI-05**: User can delete or archive contacts from CLI
+- [x] **CLI-05**: User can delete or archive contacts from CLI
 - [x] **CLI-06**: Logging an interaction auto-calculates `next_follow_up` from `follow_up_cadence`
 
 ### CardDAV Sync
@@ -75,10 +75,10 @@ Deferred to future release. Tracked but not in current roadmap.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | CLI-01 | Phase 1 | Complete |
-| CLI-02 | Phase 1 | Pending |
+| CLI-02 | Phase 1 | Complete |
 | CLI-03 | Phase 1 | Complete |
 | CLI-04 | Phase 1 | Complete |
-| CLI-05 | Phase 1 | Pending |
+| CLI-05 | Phase 1 | Complete |
 | CLI-06 | Phase 1 | Complete |
 | SYNC-01 | Phase 2 | Pending |
 | SYNC-02 | Phase 2 | Pending |
