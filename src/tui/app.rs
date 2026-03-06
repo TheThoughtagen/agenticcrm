@@ -1,9 +1,10 @@
 use std::path::PathBuf;
 
+use chrono::Local;
 use ratatui::widgets::TableState;
 
-use crate::commands::log as log_cmd;
-use crate::format::OutputFormat;
+use crate::commands::log::next_follow_up;
+use crate::frontmatter;
 use crate::models::ContactFile;
 use crate::store;
 
@@ -211,20 +212,8 @@ impl App {
             } => {
                 if let Some(ref modal) = self.log_modal {
                     let name = self.contacts[modal.contact_idx].contact.name.clone();
-                    // Use log::run() which handles all the file writing
-                    match log_cmd::run(
-                        &name,
-                        &interaction_type,
-                        &summary,
-                        None,
-                        &OutputFormat::Json,
-                    ) {
+                    match self.submit_log(&interaction_type, &summary, modal.contact_idx) {
                         Ok(()) => {
-                            // Reload contacts from disk to pick up changes
-                            if let Ok(contacts) = store::load_all_contacts(&self.crm_root) {
-                                self.contacts = contacts;
-                                self.filter_contacts();
-                            }
                             self.status_message =
                                 Some(format!("Logged {} with {}", interaction_type, name));
                         }
@@ -275,6 +264,62 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Log an interaction without printing to stdout (TUI-safe).
+    fn submit_log(
+        &mut self,
+        interaction_type: &str,
+        summary: &str,
+        contact_idx: usize,
+    ) -> anyhow::Result<()> {
+        let path = self.contacts[contact_idx].path.clone();
+        let today = Local::now().date_naive();
+
+        // Read the raw file content from disk
+        let raw = std::fs::read_to_string(&path)?;
+
+        // Build the interaction entry
+        let entry = format!("\n### {today} | {interaction_type} | {summary}\n");
+
+        // Insert after "## Interaction Log" heading
+        let updated = if let Some(pos) = raw.find("## Interaction Log") {
+            let insert_at = raw[pos..]
+                .find('\n')
+                .map(|i| pos + i + 1)
+                .unwrap_or(raw.len());
+            let mut s = raw.clone();
+            s.insert_str(insert_at, &entry);
+            s
+        } else {
+            format!("{raw}\n## Interaction Log\n{entry}")
+        };
+
+        // Update last_contacted in frontmatter
+        let updated =
+            frontmatter::update_field(&updated, "last_contacted", &today.to_string());
+
+        // Calculate and update next_follow_up if cadence is set
+        let cadence = &self.contacts[contact_idx].contact.follow_up_cadence;
+        let updated = if !cadence.is_empty() {
+            if let Ok(Some(date)) = next_follow_up(today, cadence) {
+                frontmatter::update_field(&updated, "next_follow_up", &date.to_string())
+            } else {
+                updated
+            }
+        } else {
+            updated
+        };
+
+        // Write to disk
+        std::fs::write(&path, &updated)?;
+
+        // Reload contacts to pick up changes
+        let contacts = store::load_all_contacts(&self.crm_root)?;
+        self.contacts = contacts;
+        self.filter_contacts();
+
+        Ok(())
     }
 
     pub fn filter_contacts(&mut self) {
