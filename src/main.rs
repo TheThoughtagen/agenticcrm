@@ -1,6 +1,9 @@
 mod commands;
+mod format;
+mod frontmatter;
 mod models;
 mod store;
+mod validation;
 
 use clap::{Parser, Subcommand};
 
