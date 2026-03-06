@@ -6,13 +6,9 @@ use super::app::{App, Screen};
 use super::views;
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
-    match &app.screen {
+    match app.screen {
         Screen::ContactList => views::contact_list::draw_contact_list(frame, app),
-        Screen::ContactDetail(_) => {
-            let placeholder = Paragraph::new("Contact Detail - Coming soon")
-                .alignment(Alignment::Center);
-            frame.render_widget(placeholder, frame.area());
-        }
+        Screen::ContactDetail(idx) => views::contact_detail::draw_contact_detail(frame, app, idx),
         Screen::FollowUpDashboard => {
             let placeholder =
                 Paragraph::new("Follow-Up Dashboard - Coming soon").alignment(Alignment::Center);
