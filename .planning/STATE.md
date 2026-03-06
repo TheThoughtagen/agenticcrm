@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: unknown
-last_updated: "2026-03-06T13:56:01.047Z"
+status: executing
+last_updated: "2026-03-06T14:17:00Z"
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 6
-  completed_plans: 5
+  completed_plans: 6
 ---
 
 # Project State
@@ -22,33 +22,34 @@ See: .planning/PROJECT.md (updated 2026-03-05)
 
 ## Current Position
 
-Phase: 2 of 3 (CardDAV Sync)
-Plan: 2 of 3 in current phase (02-01 and 02-02 complete)
-Status: Executing
-Last activity: 2026-03-06 -- Completed 02-01 (Data Layer: vCard Mapping and Dedup)
+Phase: 2 of 3 (CardDAV Sync) -- COMPLETE
+Plan: 3 of 3 in current phase (all complete)
+Status: Phase 2 Complete
+Last activity: 2026-03-06 -- Completed 02-03 (Sync CLI Command)
 
-Progress: [████████░░] 83%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5
+- Total plans completed: 6
 - Average duration: 3min
-- Total execution time: 0.3 hours
+- Total execution time: 0.35 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-cli-foundation | 3 | 8min | 3min |
-| 02-carddav-sync | 2 | 10min | 5min |
+| 02-carddav-sync | 3 | 15min | 5min |
 
 **Recent Trend:**
-- Last 5 plans: 01-03 (2min), 01-02 (2min), 02-01 (5min), 02-02 (5min)
+- Last 5 plans: 01-02 (2min), 01-03 (2min), 02-01 (5min), 02-02 (5min), 02-03 (5min)
 - Trend: steady
 
 *Updated after each plan completion*
 | Phase 02 P01 | 6min | 2 tasks | 8 files |
+| Phase 02 P03 | 5min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -80,6 +81,9 @@ Recent decisions affecting current work:
 - [Phase 02]: 02-01: calcard crate for vCard 3.0/4.0 parsing
 - [Phase 02]: 02-01: MappedContact struct separates contact data from notes for markdown body
 - [Phase 02]: 02-01: Name fallback: FN -> N -> ORG -> EMAIL -> Unknown Contact
+- 02-03: UID extracted from vCard href path (last segment minus .vcf)
+- 02-03: Per-vCard error handling logs warning and continues (no abort on single failure)
+- 02-03: Update flow writes directly to existing file path (same pattern as 01-03)
 
 ### Pending Todos
 
@@ -87,10 +91,10 @@ None yet.
 
 ### Blockers/Concerns
 
-- Phase 2: iCloud authentication flow needs real-device testing
+- ~~Phase 2: iCloud authentication flow needs real-device testing~~ (RESOLVED: verified via human checkpoint)
 
 ## Session Continuity
 
 Last session: 2026-03-06
-Stopped at: Completed 02-01-PLAN.md (Data Layer: vCard Mapping and Dedup)
+Stopped at: Completed 02-03-PLAN.md (Sync CLI Command) -- Phase 2 complete
 Resume file: None

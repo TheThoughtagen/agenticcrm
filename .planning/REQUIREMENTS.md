@@ -18,7 +18,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### CardDAV Sync
 
-- [ ] **SYNC-01**: User can pull contacts from iCloud via CardDAV into the CRM
+- [x] **SYNC-01**: User can pull contacts from iCloud via CardDAV into the CRM
 - [x] **SYNC-02**: Pulled contacts are converted from vCard format to CRM markdown+YAML format
 - [x] **SYNC-03**: Duplicate detection prevents re-importing contacts that already exist
 - [x] **SYNC-04**: Sync metadata (source, source_id, ETag) is stored in contact frontmatter
@@ -80,7 +80,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | CLI-04 | Phase 1 | Complete |
 | CLI-05 | Phase 1 | Complete |
 | CLI-06 | Phase 1 | Complete |
-| SYNC-01 | Phase 2 | Pending |
+| SYNC-01 | Phase 2 | Complete |
 | SYNC-02 | Phase 2 | Complete |
 | SYNC-03 | Phase 2 | Complete |
 | SYNC-04 | Phase 2 | Complete |

@@ -13,7 +13,7 @@ AgenticCRM already has a working Rust CLI with basic contact management. This ro
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [ ] **Phase 1: CLI Foundation** - Robust editing, validation, JSON output, and data integrity
-- [ ] **Phase 2: CardDAV Sync** - Pull contacts from iCloud into CRM with dedup and format conversion
+- [x] **Phase 2: CardDAV Sync** - Pull contacts from iCloud into CRM with dedup and format conversion
 - [ ] **Phase 3: Interactive TUI** - Dashboard and contact browser with ratatui
 
 ## Phase Details
@@ -49,7 +49,7 @@ Plans:
 Plans:
 - [x] 02-01-PLAN.md — vCard mapping, dedup logic, and etag schema changes
 - [x] 02-02-PLAN.md — CardDAV protocol client and credential management
-- [ ] 02-03-PLAN.md — Sync CLI command wiring all modules together
+- [x] 02-03-PLAN.md — Sync CLI command wiring all modules together
 
 ### Phase 3: Interactive TUI
 **Goal**: Users can browse, search, and manage contacts interactively without leaving the terminal
@@ -75,5 +75,5 @@ Phases execute in numeric order: 1 -> 2 -> 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. CLI Foundation | 3/3 | Complete | 2026-03-05 |
-| 2. CardDAV Sync | 2/3 | In Progress | - |
+| 2. CardDAV Sync | 3/3 | Complete | 2026-03-06 |
 | 3. Interactive TUI | 0/0 | Not started | - |
