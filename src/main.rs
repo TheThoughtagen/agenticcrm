@@ -84,6 +84,23 @@ enum Commands {
     },
     /// Show contacts due for follow-up
     Due,
+    /// Sync contacts from iCloud
+    Sync {
+        #[command(subcommand)]
+        action: Option<SyncAction>,
+        /// Force re-download all contacts (ignore ETags)
+        #[arg(long)]
+        force: bool,
+        /// Show what would change without writing
+        #[arg(long)]
+        dry_run: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum SyncAction {
+    /// Set up iCloud credentials
+    Setup,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -106,5 +123,13 @@ fn main() -> anyhow::Result<()> {
         Commands::Archive { name } => commands::archive::run_archive(&name, fmt),
         Commands::Unarchive { name } => commands::archive::run_unarchive(&name, fmt),
         Commands::Due => commands::due::run(fmt),
+        Commands::Sync {
+            action,
+            force,
+            dry_run,
+        } => match action {
+            Some(SyncAction::Setup) => commands::sync::run_setup(fmt),
+            None => commands::sync::run_sync(force, dry_run, fmt),
+        },
     }
 }
