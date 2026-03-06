@@ -63,6 +63,24 @@ enum Commands {
         #[arg(short, long = "set", num_args = 1)]
         sets: Vec<String>,
     },
+    /// Delete a contact
+    Delete {
+        /// Contact name (or partial match)
+        name: String,
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        yes: bool,
+    },
+    /// Archive a contact (sets status to archived, moves to archive/)
+    Archive {
+        /// Contact name (or partial match)
+        name: String,
+    },
+    /// Unarchive a contact (sets status to active, moves back to contacts/)
+    Unarchive {
+        /// Contact name (or partial match)
+        name: String,
+    },
     /// Show contacts due for follow-up
     Due,
 }
@@ -83,6 +101,9 @@ fn main() -> anyhow::Result<()> {
             notes,
         } => commands::log::run(&name, &interaction_type, &summary, notes.as_deref(), fmt),
         Commands::Edit { name, sets } => commands::edit::run(&name, &sets, fmt),
+        Commands::Delete { name, yes } => commands::delete::run(&name, yes, fmt),
+        Commands::Archive { name } => commands::archive::run_archive(&name, fmt),
+        Commands::Unarchive { name } => commands::archive::run_unarchive(&name, fmt),
         Commands::Due => commands::due::run(fmt),
     }
 }
