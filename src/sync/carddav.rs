@@ -175,7 +175,8 @@ fn parse_principal(xml: &str) -> Result<String> {
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) | Ok(Event::Empty(ref e)) => {
-                let local = local_name(e.name().as_ref());
+                let qname = e.name();
+                let local = local_name(qname.as_ref());
                 if local == "current-user-principal" {
                     in_principal = true;
                 } else if in_principal && local == "href" {
@@ -186,7 +187,8 @@ fn parse_principal(xml: &str) -> Result<String> {
                 }
             }
             Ok(Event::End(ref e)) => {
-                let local = local_name(e.name().as_ref());
+                let qname = e.name();
+                let local = local_name(qname.as_ref());
                 if local == "current-user-principal" {
                     in_principal = false;
                 }
@@ -210,7 +212,8 @@ fn parse_addressbook_home(xml: &str) -> Result<String> {
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) | Ok(Event::Empty(ref e)) => {
-                let local = local_name(e.name().as_ref());
+                let qname = e.name();
+                let local = local_name(qname.as_ref());
                 if local == "addressbook-home-set" {
                     in_home_set = true;
                 } else if in_home_set && local == "href" {
@@ -221,7 +224,8 @@ fn parse_addressbook_home(xml: &str) -> Result<String> {
                 }
             }
             Ok(Event::End(ref e)) => {
-                let local = local_name(e.name().as_ref());
+                let qname = e.name();
+                let local = local_name(qname.as_ref());
                 if local == "addressbook-home-set" {
                     in_home_set = false;
                 }
@@ -254,7 +258,8 @@ fn parse_addressbook_collection(xml: &str) -> Result<String> {
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) => {
-                let local = local_name(e.name().as_ref());
+                let qname = e.name();
+                let local = local_name(qname.as_ref());
                 match local.as_str() {
                     "response" => {
                         in_response = true;
@@ -277,13 +282,15 @@ fn parse_addressbook_collection(xml: &str) -> Result<String> {
                 }
             }
             Ok(Event::Empty(ref e)) => {
-                let local = local_name(e.name().as_ref());
+                let qname = e.name();
+                let local = local_name(qname.as_ref());
                 if local == "addressbook" && in_resourcetype {
                     is_addressbook = true;
                 }
             }
             Ok(Event::End(ref e)) => {
-                let local = local_name(e.name().as_ref());
+                let qname = e.name();
+                let local = local_name(qname.as_ref());
                 match local.as_str() {
                     "response" => {
                         if is_addressbook {
@@ -331,7 +338,8 @@ fn parse_vcard_entries(xml: &str) -> Result<Vec<VCardEntry>> {
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) => {
-                let local = local_name(e.name().as_ref());
+                let qname = e.name();
+                let local = local_name(qname.as_ref());
                 match local.as_str() {
                     "response" => {
                         in_response = true;
@@ -362,13 +370,15 @@ fn parse_vcard_entries(xml: &str) -> Result<Vec<VCardEntry>> {
                 }
             }
             Ok(Event::Empty(ref e)) => {
-                let local = local_name(e.name().as_ref());
+                let qname = e.name();
+                let local = local_name(qname.as_ref());
                 if in_resourcetype && (local == "collection" || local == "addressbook") {
                     is_collection = true;
                 }
             }
             Ok(Event::End(ref e)) => {
-                let local = local_name(e.name().as_ref());
+                let qname = e.name();
+                let local = local_name(qname.as_ref());
                 match local.as_str() {
                     "response" => {
                         if !is_collection {
