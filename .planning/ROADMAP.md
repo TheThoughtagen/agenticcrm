@@ -28,11 +28,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. User can delete or archive a contact and the operation is reversible (archive) or confirmed (delete)
   4. User sees clear validation errors when required fields are missing or dates are malformed
   5. Logging an interaction with a cadence-configured contact automatically sets the next follow-up date
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
+- [ ] 01-01-PLAN.md — Core infrastructure: frontmatter editor, validation, JSON output formatting
+- [ ] 01-02-PLAN.md — Edit, delete, and archive commands
+- [ ] 01-03-PLAN.md — Log command enhancement with cadence-based follow-up calculation
 
 ### Phase 2: CardDAV Sync
 **Goal**: Users can pull their iCloud contacts into the CRM without duplicates
@@ -72,6 +73,6 @@ Phases execute in numeric order: 1 -> 2 -> 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. CLI Foundation | 0/0 | Not started | - |
+| 1. CLI Foundation | 0/3 | Planning complete | - |
 | 2. CardDAV Sync | 0/0 | Not started | - |
 | 3. Interactive TUI | 0/0 | Not started | - |
