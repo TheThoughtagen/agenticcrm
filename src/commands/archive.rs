@@ -46,7 +46,7 @@ pub fn run_archive(name: &str, format: &OutputFormat) -> Result<()> {
         .to_owned();
     let archive_path = archive_dir.join(&filename);
 
-    let content = format!("---\n{}---\n\n{}", cf.raw_frontmatter, cf.body);
+    let content = store::serialize_contact_file(&cf)?;
     std::fs::write(&archive_path, &content)
         .with_context(|| format!("Failed to write {}", archive_path.display()))?;
 
@@ -82,7 +82,7 @@ pub fn run_unarchive(name: &str, format: &OutputFormat) -> Result<()> {
         .to_owned();
     let contacts_path = root.join("contacts").join(&filename);
 
-    let content = format!("---\n{}---\n\n{}", cf.raw_frontmatter, cf.body);
+    let content = store::serialize_contact_file(&cf)?;
     std::fs::write(&contacts_path, &content)
         .with_context(|| format!("Failed to write {}", contacts_path.display()))?;
 

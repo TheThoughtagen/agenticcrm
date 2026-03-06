@@ -114,7 +114,7 @@ pub fn run(
     };
 
     // Write directly to existing file path (preserves comments via raw frontmatter)
-    let content = format!("---\n{}---\n\n{}", cf.raw_frontmatter, cf.body);
+    let content = store::serialize_contact_file(&cf)?;
     std::fs::write(&cf.path, &content)
         .with_context(|| format!("Failed to write {}", cf.path.display()))?;
 

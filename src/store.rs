@@ -29,7 +29,8 @@ pub fn parse_contact_file(path: &Path) -> Result<ContactFile> {
 /// Serialize a ContactFile back to markdown with frontmatter.
 /// Uses raw_frontmatter to preserve comments and field order.
 pub fn serialize_contact_file(cf: &ContactFile) -> Result<String> {
-    Ok(format!("---\n{}---\n\n{}", cf.raw_frontmatter, cf.body))
+    let sep = if cf.raw_frontmatter.ends_with('\n') { "" } else { "\n" };
+    Ok(format!("---\n{}{}---\n\n{}", cf.raw_frontmatter, sep, cf.body))
 }
 
 /// Load all contacts from the contacts directory
