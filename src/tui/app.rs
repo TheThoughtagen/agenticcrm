@@ -48,6 +48,7 @@ pub struct App {
     pub input_mode: InputMode,
     pub search_query: String,
     pub table_state: TableState,
+    pub dashboard_state: TableState,
     pub running: bool,
     pub crm_root: PathBuf,
 }
@@ -70,6 +71,7 @@ impl App {
             input_mode: InputMode::Normal,
             search_query: String::new(),
             table_state,
+            dashboard_state: TableState::default(),
             running: true,
             crm_root,
         })
@@ -143,7 +145,8 @@ impl App {
                 self.filter_contacts();
             }
             Message::SwitchToDashboard => {
-                // Stub: will be implemented in plan 03-02
+                self.screen = Screen::FollowUpDashboard;
+                self.dashboard_state.select(Some(0));
             }
             Message::SwitchToList => {
                 self.screen = Screen::ContactList;
