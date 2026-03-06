@@ -55,6 +55,14 @@ enum Commands {
         #[arg(short, long)]
         notes: Option<String>,
     },
+    /// Edit a contact's fields
+    Edit {
+        /// Contact name (or partial match)
+        name: String,
+        /// Set a field value (key=value), repeatable
+        #[arg(short, long = "set", num_args = 1)]
+        sets: Vec<String>,
+    },
     /// Show contacts due for follow-up
     Due,
 }
@@ -74,6 +82,7 @@ fn main() -> anyhow::Result<()> {
             summary,
             notes,
         } => commands::log::run(&name, &interaction_type, &summary, notes.as_deref(), fmt),
+        Commands::Edit { name, sets } => commands::edit::run(&name, &sets, fmt),
         Commands::Due => commands::due::run(fmt),
     }
 }

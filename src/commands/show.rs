@@ -1,6 +1,6 @@
 use std::fmt;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use colored::Colorize;
 use serde::Serialize;
 
@@ -68,25 +68,10 @@ impl fmt::Display for ContactDetail {
 pub fn run(name: &str, output_format: &OutputFormat) -> Result<()> {
     let root = store::find_crm_root()?;
     let contacts = store::load_all_contacts(&root)?;
-    let name_lower = name.to_lowercase();
-
-    let matches: Vec<_> = contacts
-        .into_iter()
-        .filter(|cf| cf.contact.name.to_lowercase().contains(&name_lower))
-        .collect();
-
-    if matches.is_empty() {
-        bail!("No contact matching '{name}'");
-    }
-    if matches.len() > 1 {
-        let names: Vec<_> = matches.iter().map(|cf| cf.contact.name.as_str()).collect();
-        bail!("Multiple matches for '{name}': {}", names.join(", "));
-    }
-
-    let cf = &matches[0];
+    let cf = store::find_single_contact(contacts, name)?;
     let detail = ContactDetail {
-        contact: cf.contact.clone(),
-        body: cf.body.clone(),
+        contact: cf.contact,
+        body: cf.body,
     };
 
     format::output(&detail, output_format)

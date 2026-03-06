@@ -112,6 +112,50 @@ pub fn generate_raw_frontmatter(contact: &Contact, crm_root: &Path) -> Result<St
     Ok(fm)
 }
 
+/// Find a single contact by partial name match.
+/// Returns an error if zero or multiple contacts match.
+pub fn find_single_contact(contacts: Vec<ContactFile>, name: &str) -> Result<ContactFile> {
+    let name_lower = name.to_lowercase();
+
+    let mut matches: Vec<_> = contacts
+        .into_iter()
+        .filter(|cf| cf.contact.name.to_lowercase().contains(&name_lower))
+        .collect();
+
+    if matches.is_empty() {
+        bail!("No contact matching '{name}'");
+    }
+    if matches.len() > 1 {
+        let names: Vec<_> = matches.iter().map(|cf| cf.contact.name.as_str()).collect();
+        bail!("Multiple matches for '{name}': {}", names.join(", "));
+    }
+
+    Ok(matches.remove(0))
+}
+
+/// Load all contacts from a specific directory (like archive/)
+pub fn load_contacts_from_dir(dir: &std::path::Path) -> Result<Vec<ContactFile>> {
+    let mut contacts = Vec::new();
+
+    if !dir.is_dir() {
+        return Ok(contacts);
+    }
+
+    for entry in WalkDir::new(dir).min_depth(1).max_depth(1) {
+        let entry = entry?;
+        let path = entry.path();
+
+        if path.extension().is_some_and(|ext| ext == "md") {
+            match parse_contact_file(path) {
+                Ok(cf) => contacts.push(cf),
+                Err(e) => eprintln!("Warning: skipping {}: {e}", path.display()),
+            }
+        }
+    }
+
+    Ok(contacts)
+}
+
 /// Resolve the CRM root directory
 pub fn find_crm_root() -> Result<PathBuf> {
     // Check env var first

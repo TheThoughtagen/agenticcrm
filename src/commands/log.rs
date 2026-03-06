@@ -1,6 +1,6 @@
 use std::fmt;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use chrono::Local;
 use serde::Serialize;
 
@@ -35,22 +35,7 @@ pub fn run(
 ) -> Result<()> {
     let root = store::find_crm_root()?;
     let contacts = store::load_all_contacts(&root)?;
-    let name_lower = name.to_lowercase();
-
-    let mut matches: Vec<_> = contacts
-        .into_iter()
-        .filter(|cf| cf.contact.name.to_lowercase().contains(&name_lower))
-        .collect();
-
-    if matches.is_empty() {
-        bail!("No contact matching '{name}'");
-    }
-    if matches.len() > 1 {
-        let names: Vec<_> = matches.iter().map(|cf| cf.contact.name.as_str()).collect();
-        bail!("Multiple matches for '{name}': {}", names.join(", "));
-    }
-
-    let cf = &mut matches[0];
+    let mut cf = store::find_single_contact(contacts, name)?;
     let today = Local::now().date_naive();
 
     // Build the interaction entry
@@ -78,7 +63,7 @@ pub fn run(
     cf.raw_frontmatter =
         frontmatter::update_field(&cf.raw_frontmatter, "last_contacted", &today.to_string());
 
-    let path = store::write_contact(&root, cf)
+    let path = store::write_contact(&root, &cf)
         .context("Failed to write updated contact")?;
 
     let result = LogResult {

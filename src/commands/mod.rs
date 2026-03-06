@@ -1,5 +1,6 @@
 pub mod add;
 pub mod due;
+pub mod edit;
 pub mod list;
 pub mod log;
 pub mod search;
