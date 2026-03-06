@@ -128,4 +128,6 @@ pub struct ContactFile {
     pub contact: Contact,
     pub body: String,
     pub path: std::path::PathBuf,
+    /// Raw YAML text between --- delimiters, preserving comments and field order
+    pub raw_frontmatter: String,
 }

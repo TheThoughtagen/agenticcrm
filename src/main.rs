@@ -6,10 +6,15 @@ mod store;
 mod validation;
 
 use clap::{Parser, Subcommand};
+use format::OutputFormat;
 
 #[derive(Parser)]
 #[command(name = "acrm", about = "Agent-friendly personal CRM")]
 struct Cli {
+    /// Output format (human or json)
+    #[arg(short, long, global = true, default_value = "human")]
+    format: OutputFormat,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -56,18 +61,19 @@ enum Commands {
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    let fmt = &cli.format;
 
     match cli.command {
-        Commands::Add { name } => commands::add::run(&name),
-        Commands::List { tag } => commands::list::run(tag.as_deref()),
-        Commands::Search { query } => commands::search::run(&query),
-        Commands::Show { name } => commands::show::run(&name),
+        Commands::Add { name } => commands::add::run(&name, fmt),
+        Commands::List { tag } => commands::list::run(tag.as_deref(), fmt),
+        Commands::Search { query } => commands::search::run(&query, fmt),
+        Commands::Show { name } => commands::show::run(&name, fmt),
         Commands::Log {
             name,
             interaction_type,
             summary,
             notes,
-        } => commands::log::run(&name, &interaction_type, &summary, notes.as_deref()),
-        Commands::Due => commands::due::run(),
+        } => commands::log::run(&name, &interaction_type, &summary, notes.as_deref(), fmt),
+        Commands::Due => commands::due::run(fmt),
     }
 }

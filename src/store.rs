@@ -3,51 +3,33 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use walkdir::WalkDir;
 
+use crate::frontmatter;
 use crate::models::{Contact, ContactFile};
-
-const FRONTMATTER_DELIMITER: &str = "---";
+use crate::validation;
 
 /// Parse a markdown file with YAML frontmatter into Contact + body
 pub fn parse_contact_file(path: &Path) -> Result<ContactFile> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read {}", path.display()))?;
 
-    let (contact, body) = parse_frontmatter(&content)
+    let (raw_yaml, body) = frontmatter::parse_raw_frontmatter(&content)
         .with_context(|| format!("Failed to parse frontmatter in {}", path.display()))?;
+
+    let contact: Contact = serde_yaml::from_str(&raw_yaml)
+        .with_context(|| format!("Failed to parse YAML in {}", path.display()))?;
 
     Ok(ContactFile {
         contact,
         body,
         path: path.to_path_buf(),
+        raw_frontmatter: raw_yaml,
     })
 }
 
-fn parse_frontmatter(content: &str) -> Result<(Contact, String)> {
-    let trimmed = content.trim_start();
-    if !trimmed.starts_with(FRONTMATTER_DELIMITER) {
-        bail!("File does not start with frontmatter delimiter");
-    }
-
-    // Find the closing delimiter
-    let after_first = &trimmed[FRONTMATTER_DELIMITER.len()..];
-    let end = after_first
-        .find(&format!("\n{FRONTMATTER_DELIMITER}"))
-        .context("No closing frontmatter delimiter found")?;
-
-    let yaml = &after_first[..end];
-    let body_start = end + 1 + FRONTMATTER_DELIMITER.len();
-    let body = after_first[body_start..].trim_start_matches('\n').to_string();
-
-    let contact: Contact = serde_yaml::from_str(yaml)
-        .context("Failed to parse YAML frontmatter")?;
-
-    Ok((contact, body))
-}
-
-/// Serialize a ContactFile back to markdown with frontmatter
+/// Serialize a ContactFile back to markdown with frontmatter.
+/// Uses raw_frontmatter to preserve comments and field order.
 pub fn serialize_contact_file(cf: &ContactFile) -> Result<String> {
-    let yaml = serde_yaml::to_string(&cf.contact)?;
-    Ok(format!("---\n{yaml}---\n\n{}", cf.body))
+    Ok(format!("---\n{}---\n\n{}", cf.raw_frontmatter, cf.body))
 }
 
 /// Load all contacts from the contacts directory
@@ -70,13 +52,64 @@ pub fn load_all_contacts(crm_root: &Path) -> Result<Vec<ContactFile>> {
     Ok(contacts)
 }
 
-/// Write a contact file to disk
+/// Write a contact file to disk, validating before writing.
 pub fn write_contact(crm_root: &Path, cf: &ContactFile) -> Result<PathBuf> {
+    // Validate before writing
+    let errors = validation::validate_contact(&cf.contact);
+    if !errors.is_empty() {
+        let messages: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+        bail!("Validation failed: {}", messages.join("; "));
+    }
+
     let content = serialize_contact_file(cf)?;
     let path = crm_root.join("contacts").join(format!("{}.md", cf.contact.slug()));
     std::fs::write(&path, &content)
         .with_context(|| format!("Failed to write {}", path.display()))?;
     Ok(path)
+}
+
+/// Generate raw frontmatter for a new contact by filling in the template.
+pub fn generate_raw_frontmatter(contact: &Contact, crm_root: &Path) -> Result<String> {
+    let template_path = crm_root.join("templates").join("contact.md");
+    let template_content = std::fs::read_to_string(&template_path)
+        .with_context(|| format!("Failed to read template at {}", template_path.display()))?;
+
+    let (raw, _) = frontmatter::parse_raw_frontmatter(&template_content)
+        .context("Failed to parse template frontmatter")?;
+
+    // Fill in values from the contact
+    let mut fm = raw;
+    fm = frontmatter::update_field(&fm, "id", &format!("\"{}\"", contact.id));
+    fm = frontmatter::update_field(&fm, "name", &format!("\"{}\"", contact.name));
+
+    if !contact.company.is_empty() {
+        fm = frontmatter::update_field(&fm, "company", &format!("\"{}\"", contact.company));
+    }
+    if !contact.role.is_empty() {
+        fm = frontmatter::update_field(&fm, "role", &format!("\"{}\"", contact.role));
+    }
+    if let Some(ref status) = contact.status {
+        let status_str = serde_yaml::to_string(status)?;
+        fm = frontmatter::update_field(&fm, "status", status_str.trim());
+    }
+    if let Some(ref rel) = contact.relationship {
+        let rel_str = serde_yaml::to_string(rel)?;
+        fm = frontmatter::update_field(&fm, "relationship", rel_str.trim());
+    }
+    if let Some(ref priority) = contact.priority {
+        let pri_str = serde_yaml::to_string(priority)?;
+        fm = frontmatter::update_field(&fm, "priority", pri_str.trim());
+    }
+    if !contact.source.is_empty() {
+        fm = frontmatter::update_field(&fm, "source", &contact.source);
+    }
+
+    // Ensure trailing newline
+    if !fm.ends_with('\n') {
+        fm.push('\n');
+    }
+
+    Ok(fm)
 }
 
 /// Resolve the CRM root directory

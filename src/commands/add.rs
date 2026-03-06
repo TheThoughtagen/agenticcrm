@@ -1,10 +1,26 @@
+use std::fmt;
+
 use anyhow::Result;
+use serde::Serialize;
 use uuid::Uuid;
 
+use crate::format::{self, OutputFormat};
 use crate::models::{Contact, ContactFile, Priority, Relationship, Status};
 use crate::store;
 
-pub fn run(name: &str) -> Result<()> {
+#[derive(Serialize)]
+pub struct AddResult {
+    pub name: String,
+    pub path: String,
+}
+
+impl fmt::Display for AddResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Created: {}", self.path)
+    }
+}
+
+pub fn run(name: &str, output_format: &OutputFormat) -> Result<()> {
     let root = store::find_crm_root()?;
     let contact = Contact {
         id: Uuid::new_v4().to_string(),
@@ -40,13 +56,22 @@ pub fn run(name: &str) -> Result<()> {
         source_id: String::new(),
     };
 
+    // Generate raw frontmatter from template to preserve comments
+    let raw_frontmatter = store::generate_raw_frontmatter(&contact, &root)?;
+
     let cf = ContactFile {
         contact,
         body: "## Notes\n\n\n## Interaction Log\n".to_string(),
         path: root.join("contacts"),
+        raw_frontmatter,
     };
 
     let path = store::write_contact(&root, &cf)?;
-    println!("Created: {}", path.display());
-    Ok(())
+
+    let result = AddResult {
+        name: cf.contact.name.clone(),
+        path: path.display().to_string(),
+    };
+
+    format::output(&result, output_format)
 }

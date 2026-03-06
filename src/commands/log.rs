@@ -1,9 +1,38 @@
+use std::fmt;
+
 use anyhow::{Context, Result, bail};
 use chrono::Local;
+use serde::Serialize;
 
+use crate::format::{self, OutputFormat};
+use crate::frontmatter;
 use crate::store;
 
-pub fn run(name: &str, interaction_type: &str, summary: &str, notes: Option<&str>) -> Result<()> {
+#[derive(Serialize)]
+pub struct LogResult {
+    pub name: String,
+    pub interaction_type: String,
+    pub summary: String,
+    pub path: String,
+}
+
+impl fmt::Display for LogResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Logged {} with {} -- {}",
+            self.interaction_type, self.name, self.path
+        )
+    }
+}
+
+pub fn run(
+    name: &str,
+    interaction_type: &str,
+    summary: &str,
+    notes: Option<&str>,
+    output_format: &OutputFormat,
+) -> Result<()> {
     let root = store::find_crm_root()?;
     let contacts = store::load_all_contacts(&root)?;
     let name_lower = name.to_lowercase();
@@ -44,12 +73,20 @@ pub fn run(name: &str, interaction_type: &str, summary: &str, notes: Option<&str
         cf.body.push_str(&entry);
     }
 
-    // Update CRM fields
+    // Update CRM fields in raw frontmatter
     cf.contact.last_contacted = Some(today);
+    cf.raw_frontmatter =
+        frontmatter::update_field(&cf.raw_frontmatter, "last_contacted", &today.to_string());
 
     let path = store::write_contact(&root, cf)
         .context("Failed to write updated contact")?;
 
-    println!("Logged {interaction_type} with {} — {}", cf.contact.name, path.display());
-    Ok(())
+    let result = LogResult {
+        name: cf.contact.name.clone(),
+        interaction_type: interaction_type.to_string(),
+        summary: summary.to_string(),
+        path: path.display().to_string(),
+    };
+
+    format::output(&result, output_format)
 }
