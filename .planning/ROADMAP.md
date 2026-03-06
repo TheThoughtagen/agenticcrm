@@ -61,11 +61,12 @@ Plans:
   3. User can type `/` to search and see results filter in real-time
   4. User can switch to a follow-up dashboard showing overdue and upcoming contacts
   5. User can log an interaction directly from the TUI without dropping to the CLI
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
+- [ ] 03-01-PLAN.md — TUI scaffold, contact list table with color-coded status/priority indicators
+- [ ] 03-02-PLAN.md — Split-pane contact detail view and real-time search filtering
+- [ ] 03-03-PLAN.md — Follow-up dashboard and interaction logging modal
 
 ## Progress
 
@@ -76,4 +77,4 @@ Phases execute in numeric order: 1 -> 2 -> 3
 |-------|----------------|--------|-----------|
 | 1. CLI Foundation | 3/3 | Complete | 2026-03-05 |
 | 2. CardDAV Sync | 3/3 | Complete | 2026-03-06 |
-| 3. Interactive TUI | 0/0 | Not started | - |
+| 3. Interactive TUI | 0/3 | Not started | - |
