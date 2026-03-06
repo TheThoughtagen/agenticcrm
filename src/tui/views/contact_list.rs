@@ -5,6 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
 
 use crate::tui::app::{App, InputMode};
+use crate::tui::widgets::search_bar::draw_search_bar;
 use crate::tui::widgets::status_badge::{
     format_priority, format_status, priority_style, status_style,
 };
@@ -35,20 +36,10 @@ pub fn draw_contact_list(frame: &mut Frame, app: &mut App) {
             .split(area)
     };
 
-    // Search bar
+    // Search bar widget
     if show_search {
-        let cursor = if app.input_mode == InputMode::Search {
-            "_"
-        } else {
-            ""
-        };
-        let search_text = format!("/ {}{}", app.search_query, cursor);
-        let search_bar = Paragraph::new(search_text).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Search "),
-        );
-        frame.render_widget(search_bar, chunks[0]);
+        let active = app.input_mode == InputMode::Search;
+        draw_search_bar(frame, chunks[0], &app.search_query, active);
     }
 
     // Build table rows from filtered contacts
@@ -95,7 +86,15 @@ pub fn draw_contact_list(frame: &mut Frame, app: &mut App) {
     .style(Style::default().add_modifier(Modifier::BOLD))
     .bottom_margin(1);
 
-    let title = format!(" Contacts ({}) ", app.filtered.len());
+    let title = if show_search {
+        format!(
+            " Contacts ({}/{}) ",
+            app.filtered.len(),
+            app.contacts.len()
+        )
+    } else {
+        format!(" Contacts ({}) ", app.filtered.len())
+    };
 
     let table = Table::new(
         rows,
@@ -115,19 +114,29 @@ pub fn draw_contact_list(frame: &mut Frame, app: &mut App) {
     frame.render_stateful_widget(table, chunks[1], &mut app.table_state);
 
     // Status bar
-    let status_bar = Paragraph::new(Line::from(vec![
-        Span::styled("[j/k]", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw(" Navigate  "),
-        Span::styled("[Enter]", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw(" Details  "),
-        Span::styled("[/]", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw(" Search  "),
-        Span::styled("[d]", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw(" Dashboard  "),
-        Span::styled("[l]", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw(" Log  "),
-        Span::styled("[q]", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw(" Quit"),
-    ]));
+    let status_bar = if app.input_mode == InputMode::Search {
+        Paragraph::new(Line::from(vec![
+            Span::styled("[Esc]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Clear  "),
+            Span::styled("[Enter]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Confirm  "),
+            Span::raw("Type to filter..."),
+        ]))
+    } else {
+        Paragraph::new(Line::from(vec![
+            Span::styled("[j/k]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Navigate  "),
+            Span::styled("[Enter]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Details  "),
+            Span::styled("[/]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Search  "),
+            Span::styled("[d]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Dashboard  "),
+            Span::styled("[l]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Log  "),
+            Span::styled("[q]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Quit"),
+        ]))
+    };
     frame.render_widget(status_bar, chunks[2]);
 }
