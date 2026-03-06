@@ -47,8 +47,8 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — vCard mapping, dedup logic, and etag schema changes
-- [ ] 02-02-PLAN.md — CardDAV protocol client and credential management
+- [x] 02-01-PLAN.md — vCard mapping, dedup logic, and etag schema changes
+- [x] 02-02-PLAN.md — CardDAV protocol client and credential management
 - [ ] 02-03-PLAN.md — Sync CLI command wiring all modules together
 
 ### Phase 3: Interactive TUI
@@ -75,5 +75,5 @@ Phases execute in numeric order: 1 -> 2 -> 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. CLI Foundation | 3/3 | Complete | 2026-03-05 |
-| 2. CardDAV Sync | 0/3 | Planned | - |
+| 2. CardDAV Sync | 2/3 | In Progress | - |
 | 3. Interactive TUI | 0/0 | Not started | - |
