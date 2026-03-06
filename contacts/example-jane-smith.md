@@ -14,7 +14,7 @@ address:
   - "San Francisco, CA"
 
 # Professional
-company: "BigCorp"
+company: "NewCorp"
 role: "VP Engineering"
 industry: "SaaS"
 linkedin: "janesmith"
@@ -48,9 +48,9 @@ tags:
 
 # CRM
 status: active
-follow_up_cadence: "monthly"
-last_contacted: 2024-12-01
-next_follow_up: 2025-01-01
+follow_up_cadence: weekly
+last_contacted: 2026-03-06
+next_follow_up: 2026-04-06
 priority: high
 
 # Source
@@ -65,6 +65,8 @@ Jane is building a platform team at BigCorp. Interested in collaborating on open
 Strong opinions on async runtimes - prefers Tokio but has been experimenting with smol.
 
 ## Interaction Log
+
+### 2026-03-06 | call | Caught up on project
 
 ### 2024-12-01 | coffee | Caught up at Blue Bottle
 

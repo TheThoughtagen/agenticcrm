@@ -32,12 +32,20 @@ pub fn parse_raw_frontmatter(content: &str) -> Result<(String, String)> {
 /// Preserves comments, blank lines, and field order.
 /// If the field doesn't exist, appends it before the last line.
 pub fn update_field(raw_frontmatter: &str, key: &str, new_value: &str) -> String {
-    let pattern = format!(r"(?m)^({}:\s*)(.*)$", regex::escape(key));
+    let pattern = format!(r"(?m)^({}:[ \t]*)(.*)$", regex::escape(key));
     let re = Regex::new(&pattern).unwrap();
 
     if re.is_match(raw_frontmatter) {
-        re.replace(raw_frontmatter, format!("${{1}}{new_value}"))
-            .to_string()
+        re.replace(raw_frontmatter, |caps: &regex::Captures| {
+            let prefix = &caps[1];
+            // Ensure there's always a space after the colon
+            if prefix.ends_with(' ') || prefix.ends_with('\t') {
+                format!("{}{}", prefix, new_value)
+            } else {
+                format!("{} {}", prefix, new_value)
+            }
+        })
+        .to_string()
     } else {
         // Append before the last line
         let mut lines: Vec<&str> = raw_frontmatter.lines().collect();
@@ -198,6 +206,17 @@ source_id: """#;
         let company_pos = lines.iter().position(|l| l.starts_with("company:")).unwrap();
         let role_pos = lines.iter().position(|l| l.starts_with("role:")).unwrap();
         assert!(company_pos < role_pos);
+    }
+
+    #[test]
+    fn test_update_field_ensures_space_after_colon() {
+        // Template has "birthday:" with no trailing space — update should add one
+        let result = update_field(TEMPLATE_FRONTMATTER, "birthday", "1990-01-15");
+        assert!(
+            result.contains("birthday: 1990-01-15"),
+            "Expected 'birthday: 1990-01-15' but got: {}",
+            result.lines().find(|l| l.starts_with("birthday")).unwrap_or("NOT FOUND")
+        );
     }
 
     #[test]
