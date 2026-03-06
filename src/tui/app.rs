@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use ratatui::widgets::TableState;
 
+use crate::commands::log as log_cmd;
+use crate::format::OutputFormat;
 use crate::models::ContactFile;
 use crate::store;
 
@@ -17,6 +19,37 @@ pub enum InputMode {
     Normal,
     Search,
     LogInteraction,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LogField {
+    Type,
+    Summary,
+}
+
+pub struct LogModalState {
+    pub contact_idx: usize,
+    pub interaction_type: String,
+    pub summary: String,
+    pub active_field: LogField,
+    pub type_options: Vec<&'static str>,
+    pub type_index: usize,
+}
+
+impl LogModalState {
+    pub fn new(contact_idx: usize) -> Self {
+        let type_options = vec![
+            "coffee", "call", "email", "message", "meeting", "lunch", "intro",
+        ];
+        Self {
+            contact_idx,
+            interaction_type: type_options[0].to_string(),
+            summary: String::new(),
+            active_field: LogField::Type,
+            type_options,
+            type_index: 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -39,6 +72,11 @@ pub enum Message {
         summary: String,
     },
     CancelModal,
+    ToggleLogField,
+    LogTypeNext,
+    LogTypePrev,
+    LogSummaryInput(char),
+    LogSummaryBackspace,
 }
 
 pub struct App {
@@ -49,6 +87,8 @@ pub struct App {
     pub search_query: String,
     pub table_state: TableState,
     pub dashboard_state: TableState,
+    pub log_modal: Option<LogModalState>,
+    pub status_message: Option<String>,
     pub running: bool,
     pub crm_root: PathBuf,
 }
@@ -72,12 +112,17 @@ impl App {
             search_query: String::new(),
             table_state,
             dashboard_state: TableState::default(),
+            log_modal: None,
+            status_message: None,
             running: true,
             crm_root,
         })
     }
 
     pub fn update(&mut self, msg: Message) {
+        // Clear status message on any keypress
+        self.status_message = None;
+
         match msg {
             Message::Quit => self.running = false,
             Message::SelectNext => {
@@ -152,13 +197,82 @@ impl App {
                 self.screen = Screen::ContactList;
             }
             Message::StartLog => {
-                // Stub: will be implemented in plan 03-03
+                if let Some(selected) = self.table_state.selected() {
+                    if selected < self.filtered.len() {
+                        let contact_idx = self.filtered[selected];
+                        self.log_modal = Some(LogModalState::new(contact_idx));
+                        self.input_mode = InputMode::LogInteraction;
+                    }
+                }
             }
-            Message::SubmitLog { .. } => {
-                // Stub: will be implemented in plan 03-03
+            Message::SubmitLog {
+                interaction_type,
+                summary,
+            } => {
+                if let Some(ref modal) = self.log_modal {
+                    let name = self.contacts[modal.contact_idx].contact.name.clone();
+                    // Use log::run() which handles all the file writing
+                    match log_cmd::run(
+                        &name,
+                        &interaction_type,
+                        &summary,
+                        None,
+                        &OutputFormat::Json,
+                    ) {
+                        Ok(()) => {
+                            // Reload contacts from disk to pick up changes
+                            if let Ok(contacts) = store::load_all_contacts(&self.crm_root) {
+                                self.contacts = contacts;
+                                self.filter_contacts();
+                            }
+                            self.status_message =
+                                Some(format!("Logged {} with {}", interaction_type, name));
+                        }
+                        Err(e) => {
+                            self.status_message = Some(format!("Error: {}", e));
+                        }
+                    }
+                }
+                self.log_modal = None;
+                self.input_mode = InputMode::Normal;
             }
             Message::CancelModal => {
+                self.log_modal = None;
                 self.input_mode = InputMode::Normal;
+            }
+            Message::ToggleLogField => {
+                if let Some(ref mut modal) = self.log_modal {
+                    modal.active_field = match modal.active_field {
+                        LogField::Type => LogField::Summary,
+                        LogField::Summary => LogField::Type,
+                    };
+                }
+            }
+            Message::LogTypeNext => {
+                if let Some(ref mut modal) = self.log_modal {
+                    modal.type_index = (modal.type_index + 1) % modal.type_options.len();
+                    modal.interaction_type = modal.type_options[modal.type_index].to_string();
+                }
+            }
+            Message::LogTypePrev => {
+                if let Some(ref mut modal) = self.log_modal {
+                    if modal.type_index == 0 {
+                        modal.type_index = modal.type_options.len() - 1;
+                    } else {
+                        modal.type_index -= 1;
+                    }
+                    modal.interaction_type = modal.type_options[modal.type_index].to_string();
+                }
+            }
+            Message::LogSummaryInput(c) => {
+                if let Some(ref mut modal) = self.log_modal {
+                    modal.summary.push(c);
+                }
+            }
+            Message::LogSummaryBackspace => {
+                if let Some(ref mut modal) = self.log_modal {
+                    modal.summary.pop();
+                }
             }
         }
     }

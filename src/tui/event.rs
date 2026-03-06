@@ -1,6 +1,6 @@
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
-use super::app::{App, InputMode, Message, Screen};
+use super::app::{App, InputMode, LogField, Message, Screen};
 
 pub fn handle_key(app: &App, key: KeyEvent) -> Option<Message> {
     match app.input_mode {
@@ -11,10 +11,38 @@ pub fn handle_key(app: &App, key: KeyEvent) -> Option<Message> {
             KeyCode::Char(c) => Some(Message::SearchInput(c)),
             _ => None,
         },
-        InputMode::LogInteraction => match key.code {
-            KeyCode::Esc => Some(Message::CancelModal),
-            _ => None,
-        },
+        InputMode::LogInteraction => {
+            if let Some(ref modal) = app.log_modal {
+                match key.code {
+                    KeyCode::Esc => Some(Message::CancelModal),
+                    KeyCode::Tab | KeyCode::BackTab => Some(Message::ToggleLogField),
+                    KeyCode::Enter => {
+                        if !modal.summary.is_empty() {
+                            Some(Message::SubmitLog {
+                                interaction_type: modal.interaction_type.clone(),
+                                summary: modal.summary.clone(),
+                            })
+                        } else {
+                            None
+                        }
+                    }
+                    _ => match modal.active_field {
+                        LogField::Type => match key.code {
+                            KeyCode::Right | KeyCode::Char('j') => Some(Message::LogTypeNext),
+                            KeyCode::Left | KeyCode::Char('k') => Some(Message::LogTypePrev),
+                            _ => None,
+                        },
+                        LogField::Summary => match key.code {
+                            KeyCode::Backspace => Some(Message::LogSummaryBackspace),
+                            KeyCode::Char(c) => Some(Message::LogSummaryInput(c)),
+                            _ => None,
+                        },
+                    },
+                }
+            } else {
+                Some(Message::CancelModal)
+            }
+        }
         InputMode::Normal => match &app.screen {
             Screen::ContactList => match key.code {
                 KeyCode::Char('q') => Some(Message::Quit),
