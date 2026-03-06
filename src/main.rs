@@ -4,6 +4,7 @@ mod frontmatter;
 mod models;
 mod store;
 mod sync;
+mod tui;
 mod validation;
 
 use clap::{Parser, Subcommand};
@@ -84,6 +85,8 @@ enum Commands {
     },
     /// Show contacts due for follow-up
     Due,
+    /// Launch interactive TUI
+    Tui,
     /// Sync contacts from iCloud
     Sync {
         #[command(subcommand)]
@@ -123,6 +126,7 @@ fn main() -> anyhow::Result<()> {
         Commands::Archive { name } => commands::archive::run_archive(&name, fmt),
         Commands::Unarchive { name } => commands::archive::run_unarchive(&name, fmt),
         Commands::Due => commands::due::run(fmt),
+        Commands::Tui => tui::run(),
         Commands::Sync {
             action,
             force,
