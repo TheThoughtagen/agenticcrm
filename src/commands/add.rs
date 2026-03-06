@@ -54,6 +54,7 @@ pub fn run(name: &str, output_format: &OutputFormat) -> Result<()> {
         priority: Some(Priority::Medium),
         source: "manual".to_string(),
         source_id: String::new(),
+        etag: String::new(),
     };
 
     // Generate raw frontmatter from template to preserve comments

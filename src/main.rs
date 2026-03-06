@@ -3,6 +3,7 @@ mod format;
 mod frontmatter;
 mod models;
 mod store;
+mod sync;
 mod validation;
 
 use clap::{Parser, Subcommand};
