@@ -52,3 +52,4 @@ fields:
   # Source tracking
   source: string       # where this contact was imported from
   source_id: string    # ID in the source system
+  etag: string         # ETag from sync source for change detection

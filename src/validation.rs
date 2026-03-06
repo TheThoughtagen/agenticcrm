@@ -89,6 +89,7 @@ mod tests {
             priority: None,
             source: String::new(),
             source_id: String::new(),
+            etag: String::new(),
         }
     }
 
@@ -131,6 +132,33 @@ mod tests {
         c.follow_up_cadence = "monthly".to_string();
         let errors = validate_contact(&c);
         assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_contact_with_etag_deserializes() {
+        let yaml = r#"
+id: "test-123"
+name: "Test"
+etag: "abc-etag-123"
+"#;
+        let contact: Contact = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(contact.etag, "abc-etag-123");
+    }
+
+    #[test]
+    fn test_contact_without_etag_deserializes_default() {
+        let yaml = r#"
+id: "test-123"
+name: "Test"
+"#;
+        let contact: Contact = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(contact.etag, "");
+    }
+
+    #[test]
+    fn test_valid_contact_includes_etag() {
+        let c = valid_contact();
+        assert_eq!(c.etag, "");
     }
 
     #[test]

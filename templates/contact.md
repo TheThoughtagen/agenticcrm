@@ -44,6 +44,7 @@ priority: medium
 # Source
 source: manual
 source_id: ""
+etag: ""
 ---
 
 ## Notes

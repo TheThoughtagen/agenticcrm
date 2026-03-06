@@ -107,6 +107,8 @@ pub struct Contact {
     pub source: String,
     #[serde(default)]
     pub source_id: String,
+    #[serde(default)]
+    pub etag: String,
 }
 
 impl Contact {
