@@ -78,27 +78,27 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PUSH-01 | Pending | Pending |
-| PUSH-02 | Pending | Pending |
-| PUSH-03 | Pending | Pending |
-| PUSH-04 | Pending | Pending |
-| PUSH-05 | Pending | Pending |
-| CMD-01 | Pending | Pending |
-| CMD-02 | Pending | Pending |
-| CMD-03 | Pending | Pending |
-| CMD-04 | Pending | Pending |
-| FILT-01 | Pending | Pending |
-| FILT-02 | Pending | Pending |
-| FILT-03 | Pending | Pending |
-| FILT-04 | Pending | Pending |
-| BIDI-01 | Pending | Pending |
-| BIDI-02 | Pending | Pending |
+| PUSH-01 | Phase 4 | Pending |
+| PUSH-02 | Phase 4 | Pending |
+| PUSH-03 | Phase 4 | Pending |
+| PUSH-04 | Phase 4 | Pending |
+| PUSH-05 | Phase 4 | Pending |
+| CMD-01 | Phase 5 | Pending |
+| CMD-02 | Phase 5 | Pending |
+| CMD-03 | Phase 5 | Pending |
+| CMD-04 | Phase 5 | Pending |
+| FILT-01 | Phase 6 | Pending |
+| FILT-02 | Phase 6 | Pending |
+| FILT-03 | Phase 6 | Pending |
+| FILT-04 | Phase 6 | Pending |
+| BIDI-01 | Phase 6 | Pending |
+| BIDI-02 | Phase 6 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 15 total
-- Mapped to phases: 0
-- Unmapped: 15
+- Mapped to phases: 15
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-07*
-*Last updated: 2026-03-07 after initial definition*
+*Last updated: 2026-03-07 after roadmap creation*
