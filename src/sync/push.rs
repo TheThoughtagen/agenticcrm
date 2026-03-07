@@ -85,7 +85,7 @@ pub fn compute_push_changeset(
             continue;
         }
 
-        let source_id = &cf.contact.source_id;
+        let source_id = cf.contact.source_id.clone();
 
         // Check if this contact is archived -> delete from server
         if matches!(cf.contact.status, Some(Status::Archived)) {
@@ -98,7 +98,7 @@ pub fn compute_push_changeset(
         }
 
         // Check server etag vs local etag for conflict detection
-        if let Some(server_etag) = server_etags.get(source_id) {
+        if let Some(server_etag) = server_etags.get(&source_id) {
             if server_etag != &cf.contact.etag && !cf.contact.etag.is_empty() {
                 let local_etag = cf.contact.etag.clone();
                 let s_etag = server_etag.clone();
@@ -108,7 +108,7 @@ pub fn compute_push_changeset(
         }
 
         // Compare serialized vCard with cached version
-        let cached = vcard_write::read_cached_vcard(crm_root, source_id);
+        let cached = vcard_write::read_cached_vcard(crm_root, &source_id);
         let serialized = if let Some(ref cached_text) = cached {
             vcard_write::merge_contact_to_vcard(&cf.contact, cached_text)?
         } else {
