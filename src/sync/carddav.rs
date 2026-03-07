@@ -3,6 +3,8 @@ use quick_xml::events::Event;
 use quick_xml::Reader;
 use reqwest::blocking::Client;
 use reqwest::Method;
+use std::thread;
+use std::time::Duration;
 use url::Url;
 
 /// A single vCard resource entry from an address book listing.
@@ -163,6 +165,107 @@ impl CardDavClient {
         response
             .text()
             .context("Failed to read PROPFIND response body")
+    }
+
+    /// Upload (create or update) a vCard resource via HTTP PUT.
+    ///
+    /// ETag-based conflict detection:
+    /// - `etag = None`: Creates a new resource using `If-None-Match: *` header.
+    ///   The server will reject the request (412) if a resource already exists at that URL.
+    /// - `etag = Some(tag)`: Updates an existing resource using `If-Match: "tag"` header.
+    ///   The server will reject the request (412) if the server-side ETag has changed.
+    ///
+    /// Returns the new ETag from the response, or an empty string if the server
+    /// did not include one (caller should PROPFIND to retrieve it).
+    ///
+    /// Includes a 200ms delay before the request as an iCloud rate-limit defense.
+    pub fn put_vcard(&self, url: &Url, vcard_text: &str, etag: Option<&str>) -> Result<String> {
+        thread::sleep(Duration::from_millis(200));
+
+        let mut req = self
+            .client
+            .put(url.as_str())
+            .header("Content-Type", "text/vcard; charset=utf-8")
+            .basic_auth(&self.apple_id, Some(&self.app_password))
+            .body(vcard_text.to_string());
+
+        req = match etag {
+            Some(tag) => req.header("If-Match", format!("\"{}\"", tag)),
+            None => req.header("If-None-Match", "*"),
+        };
+
+        let response = req.send().context("Failed to send PUT request for vCard")?;
+
+        let status = response.status();
+        match status.as_u16() {
+            201 | 204 => {
+                let new_etag = response
+                    .headers()
+                    .get("ETag")
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| s.trim_matches('"').to_string())
+                    .unwrap_or_default();
+                Ok(new_etag)
+            }
+            412 => {
+                anyhow::bail!("Conflict: server has newer version (ETag mismatch)");
+            }
+            401 => {
+                anyhow::bail!(
+                    "Authentication failed - ensure you're using an app-specific password from appleid.apple.com"
+                );
+            }
+            code => {
+                anyhow::bail!("PUT request failed with status {}", code);
+            }
+        }
+    }
+
+    /// Delete a vCard resource via HTTP DELETE with ETag-based conflict detection.
+    ///
+    /// Sends `If-Match: "etag"` to ensure we only delete the version we know about.
+    /// Returns Ok(()) on success (200/204) or if the resource is already gone (404).
+    /// Returns an error on 412 (ETag mismatch / conflict) or other failures.
+    ///
+    /// Includes a 200ms delay before the request as an iCloud rate-limit defense.
+    pub fn delete_vcard(&self, url: &Url, etag: &str) -> Result<()> {
+        thread::sleep(Duration::from_millis(200));
+
+        let response = self
+            .client
+            .delete(url.as_str())
+            .header("If-Match", format!("\"{}\"", etag))
+            .basic_auth(&self.apple_id, Some(&self.app_password))
+            .send()
+            .context("Failed to send DELETE request for vCard")?;
+
+        let status = response.status();
+        match status.as_u16() {
+            200 | 204 => Ok(()),
+            404 => Ok(()), // Idempotent: already deleted
+            412 => {
+                anyhow::bail!("Conflict: server has newer version (ETag mismatch)");
+            }
+            401 => {
+                anyhow::bail!(
+                    "Authentication failed - ensure you're using an app-specific password from appleid.apple.com"
+                );
+            }
+            code => {
+                anyhow::bail!("DELETE request failed with status {}", code);
+            }
+        }
+    }
+
+    /// Construct a vCard resource URL from an address book URL and a UUID.
+    ///
+    /// Returns `{addressbook_url}{uuid}.vcf`, e.g.:
+    /// `https://contacts.icloud.com/123/carddavhome/card/abc-def-123.vcf`
+    pub fn build_vcard_url(addressbook_url: &Url, uuid: &str) -> Result<Url> {
+        let filename = format!("{}.vcf", uuid);
+        addressbook_url
+            .join(&filename)
+            .context("Failed to construct vCard URL")
     }
 }
 
