@@ -8,7 +8,7 @@ progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 7
-  completed_plans: 2
+  completed_plans: 3
 ---
 
 # Project State
@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 ## Current Position
 
 Phase: 4 of 6 (Push Infrastructure) -- first phase of v1.1
-Plan: 2 of 3 in current phase (Plans 01, 02 complete)
+Plan: 3 of 3 in current phase (Plans 01, 02, 03 complete -- PHASE COMPLETE)
 Status: Executing
-Last activity: 2026-03-07 -- completed 04-01 vCard serialization and cache
+Last activity: 2026-03-07 -- completed 04-03 push orchestration
 
-Progress: [██░░░░░░░░] 28% (2/7 v1.1 plans)
+Progress: [████░░░░░░] 42% (3/7 v1.1 plans)
 
 ## Performance Metrics
 
@@ -53,6 +53,8 @@ Recent decisions affecting current work:
 - v1.1: 200ms sleep before PUT/DELETE as iCloud rate-limit defense
 - v1.1: DELETE returns Ok on 404 for idempotent semantics
 - v1.1: Use VCardValue::Text (not Component) for N property to get semicolon separators
+- v1.1: Merge path (merge_contact_to_vcard) is canonical form for cache comparison
+- v1.1: Changeset compute-then-execute pattern enables dry-run and preview
 
 ### Pending Todos
 
@@ -66,5 +68,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-07
-Stopped at: Completed 04-01-PLAN.md (vCard serialization and cache)
+Stopped at: Completed 04-03-PLAN.md (push orchestration) -- Phase 4 complete
 Resume file: None
