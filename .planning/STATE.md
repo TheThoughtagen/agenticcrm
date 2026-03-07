@@ -8,7 +8,7 @@ progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 7
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State
@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 ## Current Position
 
 Phase: 4 of 6 (Push Infrastructure) -- first phase of v1.1
-Plan: 2 of 3 in current phase (Plan 02 complete)
+Plan: 2 of 3 in current phase (Plans 01, 02 complete)
 Status: Executing
-Last activity: 2026-03-07 -- completed 04-02 CardDAV write operations
+Last activity: 2026-03-07 -- completed 04-01 vCard serialization and cache
 
-Progress: [█░░░░░░░░░] 14% (1/7 v1.1 plans)
+Progress: [██░░░░░░░░] 28% (2/7 v1.1 plans)
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Recent decisions affecting current work:
 - v1.1: Empty string returned when server omits ETag in PUT response (caller PROPFINDs)
 - v1.1: 200ms sleep before PUT/DELETE as iCloud rate-limit defense
 - v1.1: DELETE returns Ok on 404 for idempotent semantics
+- v1.1: Use VCardValue::Text (not Component) for N property to get semicolon separators
 
 ### Pending Todos
 
@@ -59,11 +60,11 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Research]: vCard cache merge strategy needs implementation validation (calcard entries find-and-replace)
+- [Resolved]: vCard cache merge strategy validated -- parse-overlay-serialize with CRM_MAPPED_PROPERTIES works correctly
 - [Research]: iCloud rate limits undocumented -- plan for 200ms delays + exponential backoff
 
 ## Session Continuity
 
 Last session: 2026-03-07
-Stopped at: Completed 04-02-PLAN.md (CardDAV write operations)
+Stopped at: Completed 04-01-PLAN.md (vCard serialization and cache)
 Resume file: None
