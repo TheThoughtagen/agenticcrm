@@ -17,14 +17,203 @@ const CRM_MAPPED_PROPERTIES: &[VCardProperty] = &[
 ];
 
 /// Build a fresh vCard 3.0 string from a Contact.
-pub fn contact_to_vcard(_contact: &Contact) -> Result<String> {
-    todo!()
+pub fn contact_to_vcard(contact: &Contact) -> Result<String> {
+    let mut entries = Vec::new();
+
+    // VERSION:3.0 (required first)
+    entries.push(
+        VCardEntry::new(VCardProperty::Version)
+            .with_value(VCardValue::Text("3.0".to_string())),
+    );
+
+    // FN (required in vCard 3.0)
+    entries.push(
+        VCardEntry::new(VCardProperty::Fn)
+            .with_value(VCardValue::Text(contact.name.clone())),
+    );
+
+    // N (structured: Family;Given;;;)
+    // Each component is a separate Text value, separated by ; in output
+    let (given, family) = split_name(&contact.name);
+    entries.push(
+        VCardEntry::new(VCardProperty::N)
+            .with_values(vec![
+                VCardValue::Text(family.to_string()),
+                VCardValue::Text(given.to_string()),
+                VCardValue::Text(String::new()),
+                VCardValue::Text(String::new()),
+                VCardValue::Text(String::new()),
+            ]),
+    );
+
+    // EMAIL entries (one per address)
+    for email in &contact.email {
+        entries.push(
+            VCardEntry::new(VCardProperty::Email)
+                .with_value(VCardValue::Text(email.clone())),
+        );
+    }
+
+    // TEL entries (one per number)
+    for phone in &contact.phone {
+        entries.push(
+            VCardEntry::new(VCardProperty::Tel)
+                .with_value(VCardValue::Text(phone.clone())),
+        );
+    }
+
+    // ORG (only if non-empty)
+    if !contact.company.is_empty() {
+        entries.push(
+            VCardEntry::new(VCardProperty::Org)
+                .with_value(VCardValue::Text(contact.company.clone())),
+        );
+    }
+
+    // TITLE (only if non-empty)
+    if !contact.role.is_empty() {
+        entries.push(
+            VCardEntry::new(VCardProperty::Title)
+                .with_value(VCardValue::Text(contact.role.clone())),
+        );
+    }
+
+    // URL (only if non-empty)
+    if !contact.website.is_empty() {
+        entries.push(
+            VCardEntry::new(VCardProperty::Url)
+                .with_value(VCardValue::Text(contact.website.clone())),
+        );
+    }
+
+    // BDAY (only if set)
+    if let Some(bday) = contact.birthday {
+        entries.push(
+            VCardEntry::new(VCardProperty::Bday)
+                .with_value(VCardValue::Text(bday.format("%Y-%m-%d").to_string())),
+        );
+    }
+
+    // UID (source_id if set, else contact.id)
+    let uid = if !contact.source_id.is_empty() {
+        &contact.source_id
+    } else {
+        &contact.id
+    };
+    entries.push(
+        VCardEntry::new(VCardProperty::Uid)
+            .with_value(VCardValue::Text(uid.clone())),
+    );
+
+    let vcard = VCard { entries };
+    Ok(ensure_crlf(&vcard.to_string()))
 }
 
 /// Parse a cached vCard, replace CRM-mapped properties with current Contact data,
 /// preserve all other properties (X-ABUID, PHOTO, etc.), and serialize.
-pub fn merge_contact_to_vcard(_contact: &Contact, _cached_vcard_text: &str) -> Result<String> {
-    todo!()
+pub fn merge_contact_to_vcard(contact: &Contact, cached_vcard_text: &str) -> Result<String> {
+    let vcard = match VCard::parse(cached_vcard_text) {
+        Ok(vcard) => vcard,
+        Err(_) => {
+            // Fall back to building from scratch if cached vCard is unparseable
+            return contact_to_vcard(contact);
+        }
+    };
+
+    // Retain entries NOT in CRM_MAPPED_PROPERTIES (preserves VERSION, UID, X-*, PHOTO, etc.)
+    let mut retained: Vec<VCardEntry> = vcard
+        .entries
+        .into_iter()
+        .filter(|entry| !CRM_MAPPED_PROPERTIES.contains(&entry.name))
+        .collect();
+
+    // Re-add CRM-mapped properties from current Contact data
+    add_crm_entries(&mut retained, contact);
+
+    let merged = VCard { entries: retained };
+    Ok(ensure_crlf(&merged.to_string()))
+}
+
+/// Add CRM-mapped property entries to an existing entries list.
+/// Does NOT add VERSION or UID (those should already be retained from the cached vCard).
+fn add_crm_entries(entries: &mut Vec<VCardEntry>, contact: &Contact) {
+    // FN
+    entries.push(
+        VCardEntry::new(VCardProperty::Fn)
+            .with_value(VCardValue::Text(contact.name.clone())),
+    );
+
+    // N
+    let (given, family) = split_name(&contact.name);
+    entries.push(
+        VCardEntry::new(VCardProperty::N)
+            .with_value(VCardValue::Component(vec![
+                family.to_string(),
+                given.to_string(),
+                String::new(),
+                String::new(),
+                String::new(),
+            ])),
+    );
+
+    // EMAIL
+    for email in &contact.email {
+        entries.push(
+            VCardEntry::new(VCardProperty::Email)
+                .with_value(VCardValue::Text(email.clone())),
+        );
+    }
+
+    // TEL
+    for phone in &contact.phone {
+        entries.push(
+            VCardEntry::new(VCardProperty::Tel)
+                .with_value(VCardValue::Text(phone.clone())),
+        );
+    }
+
+    // ORG
+    if !contact.company.is_empty() {
+        entries.push(
+            VCardEntry::new(VCardProperty::Org)
+                .with_value(VCardValue::Text(contact.company.clone())),
+        );
+    }
+
+    // TITLE
+    if !contact.role.is_empty() {
+        entries.push(
+            VCardEntry::new(VCardProperty::Title)
+                .with_value(VCardValue::Text(contact.role.clone())),
+        );
+    }
+
+    // URL
+    if !contact.website.is_empty() {
+        entries.push(
+            VCardEntry::new(VCardProperty::Url)
+                .with_value(VCardValue::Text(contact.website.clone())),
+        );
+    }
+
+    // BDAY
+    if let Some(bday) = contact.birthday {
+        entries.push(
+            VCardEntry::new(VCardProperty::Bday)
+                .with_value(VCardValue::Text(bday.format("%Y-%m-%d").to_string())),
+        );
+    }
+}
+
+/// Split a name into (given, family) parts.
+/// "Jane Smith" -> ("Jane", "Smith")
+/// "Bob" -> ("Bob", "")
+fn split_name(name: &str) -> (&str, &str) {
+    match name.splitn(2, ' ').collect::<Vec<_>>().as_slice() {
+        [first, last] => (first, last),
+        [single] => (single, ""),
+        _ => ("", ""),
+    }
 }
 
 /// Returns the vCard cache directory path.
@@ -33,18 +222,28 @@ pub fn cache_dir(crm_root: &Path) -> PathBuf {
 }
 
 /// Read a cached vCard file. Returns None if file does not exist.
-pub fn read_cached_vcard(_crm_root: &Path, _source_id: &str) -> Option<String> {
-    todo!()
+pub fn read_cached_vcard(crm_root: &Path, source_id: &str) -> Option<String> {
+    let path = cache_dir(crm_root).join(format!("{}.vcf", source_id));
+    std::fs::read_to_string(path).ok()
 }
 
 /// Write a vCard to the cache directory, creating it if needed.
-pub fn write_cached_vcard(_crm_root: &Path, _source_id: &str, _vcard_text: &str) -> Result<()> {
-    todo!()
+pub fn write_cached_vcard(crm_root: &Path, source_id: &str, vcard_text: &str) -> Result<()> {
+    let dir = cache_dir(crm_root);
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(format!("{}.vcf", source_id));
+    std::fs::write(path, vcard_text)?;
+    Ok(())
 }
 
 /// Delete a cached vCard file. No error if file is missing.
-pub fn delete_cached_vcard(_crm_root: &Path, _source_id: &str) -> Result<()> {
-    todo!()
+pub fn delete_cached_vcard(crm_root: &Path, source_id: &str) -> Result<()> {
+    let path = cache_dir(crm_root).join(format!("{}.vcf", source_id));
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.into()),
+    }
 }
 
 /// Ensure output uses CRLF line endings without double-converting.
