@@ -34,12 +34,12 @@
   3. A deleted/archived CRM contact triggers removal of the corresponding iCloud contact
   4. Pushing a contact back to iCloud preserves iCloud-only data (photos, TYPE params, X-properties) via vCard cache
   5. When iCloud has a newer version (different ETag), the user sees a conflict warning before push proceeds
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 04-01: TBD
-- [ ] 04-02: TBD
-- [ ] 04-03: TBD
+- [ ] 04-01-PLAN.md — vCard serialization and cache module
+- [ ] 04-02-PLAN.md — CardDAV PUT/DELETE methods
+- [ ] 04-03-PLAN.md — Push orchestration and pull cache integration
 
 ### Phase 5: Push Command
 **Goal**: User has a complete CLI interface for pushing CRM changes to iCloud with previewing, overriding, and reporting
