@@ -9,11 +9,11 @@ Requirements for two-way iCloud sync milestone. Each maps to roadmap phases.
 
 ### Push Infrastructure
 
-- [ ] **PUSH-01**: User can push a new CRM contact to iCloud via `acrm sync push` (creates vCard on server)
-- [ ] **PUSH-02**: User can push updated CRM contact to iCloud (replaces vCard on server)
-- [ ] **PUSH-03**: User can push CRM deletion/archive to iCloud (removes contact from server)
+- [x] **PUSH-01**: User can push a new CRM contact to iCloud via `acrm sync push` (creates vCard on server)
+- [x] **PUSH-02**: User can push updated CRM contact to iCloud (replaces vCard on server)
+- [x] **PUSH-03**: User can push CRM deletion/archive to iCloud (removes contact from server)
 - [ ] **PUSH-04**: Push preserves iCloud data not mapped to CRM (photos, TYPE params, X-properties) via vCard cache
-- [ ] **PUSH-05**: User sees conflict warning when iCloud has a newer version (CRM wins by default)
+- [x] **PUSH-05**: User sees conflict warning when iCloud has a newer version (CRM wins by default)
 
 ### Push Command
 
@@ -78,11 +78,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PUSH-01 | Phase 4 | Pending |
-| PUSH-02 | Phase 4 | Pending |
-| PUSH-03 | Phase 4 | Pending |
+| PUSH-01 | Phase 4 | Complete |
+| PUSH-02 | Phase 4 | Complete |
+| PUSH-03 | Phase 4 | Complete |
 | PUSH-04 | Phase 4 | Pending |
-| PUSH-05 | Phase 4 | Pending |
+| PUSH-05 | Phase 4 | Complete |
 | CMD-01 | Phase 5 | Pending |
 | CMD-02 | Phase 5 | Pending |
 | CMD-03 | Phase 5 | Pending |

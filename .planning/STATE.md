@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Two-Way iCloud Sync
-status: ready_to_plan
+status: executing
 last_updated: "2026-03-07"
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 7
-  completed_plans: 0
+  completed_plans: 1
 ---
 
 # Project State
@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 ## Current Position
 
 Phase: 4 of 6 (Push Infrastructure) -- first phase of v1.1
-Plan: 0 of 3 in current phase
-Status: Ready to plan
-Last activity: 2026-03-07 -- v1.1 roadmap created
+Plan: 2 of 3 in current phase (Plan 02 complete)
+Status: Executing
+Last activity: 2026-03-07 -- completed 04-02 CardDAV write operations
 
-Progress: [░░░░░░░░░░] 0% (0/7 v1.1 plans)
+Progress: [█░░░░░░░░░] 14% (1/7 v1.1 plans)
 
 ## Performance Metrics
 
@@ -49,6 +49,9 @@ Recent decisions affecting current work:
 - v1.0: calcard for vCard parsing
 - v1.1: Sync trigger = manual push + optional auto-push config
 - v1.1: Conflict resolution = warn + override (CRM still wins)
+- v1.1: Empty string returned when server omits ETag in PUT response (caller PROPFINDs)
+- v1.1: 200ms sleep before PUT/DELETE as iCloud rate-limit defense
+- v1.1: DELETE returns Ok on 404 for idempotent semantics
 
 ### Pending Todos
 
@@ -62,5 +65,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-07
-Stopped at: v1.1 roadmap created, ready to plan Phase 4
+Stopped at: Completed 04-02-PLAN.md (CardDAV write operations)
 Resume file: None
