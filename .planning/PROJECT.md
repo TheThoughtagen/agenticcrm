@@ -34,9 +34,17 @@ Your contacts and relationship history are always accessible, portable, and unde
 
 ### Active
 
+<!-- Current Milestone: v1.1 Two-Way iCloud Sync -->
+- [ ] Push changes (create, update, delete) from CRM to iCloud via CardDAV PUT/DELETE
+- [ ] Manual `acrm sync push` command + optional auto-push on save config
+- [ ] Conflict detection with warning when iCloud has newer version (CRM wins by default)
+- [ ] Selective sync filters by tag/status for both push and pull
+- [ ] New CRM-created contacts pushed to iCloud
+- [ ] Delete/archive in CRM propagates delete to iCloud on push
+
+### Future
+
 - [ ] MCP server exposing CRM as tool server for AI agents
-- [ ] Two-way iCloud sync (push + conflict resolution)
-- [ ] Selective sync by tag/status filter
 - [ ] Bulk operations (mass tagging, filtering, pipeline-style ops)
 - [ ] LinkedIn connector (richer than current CSV import)
 
@@ -88,5 +96,17 @@ Raw frontmatter preservation pattern ensures YAML comments survive editing.
 | calcard for vCard parsing | Production quality, supports 3.0 and 4.0 | ✓ Good — handles iCloud vCards |
 | Dedup by source_id not name | Exact matching avoids false positives | ✓ Good — reliable sync |
 
+## Current Milestone: v1.1 Two-Way iCloud Sync
+
+**Goal:** Enable full bidirectional iCloud CardDAV sync with conflict detection, selective filtering, and auto-push option.
+
+**Target features:**
+- CardDAV PUT for creating/updating contacts in iCloud
+- CardDAV DELETE for removing contacts from iCloud
+- Conflict detection (ETag-based) with warn + override
+- `acrm sync push` manual command
+- Auto-push on save (optional config flag)
+- Selective sync by tag/status for push and pull
+
 ---
-*Last updated: 2026-03-06 after v1.0 milestone*
+*Last updated: 2026-03-07 after v1.1 milestone start*
