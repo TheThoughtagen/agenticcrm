@@ -620,4 +620,29 @@ mod tests {
         assert_eq!(local_name(b"href"), "href");
         assert_eq!(local_name(b"cs:getctag"), "getctag");
     }
+
+    #[test]
+    fn test_build_vcard_url_basic() {
+        let base = Url::parse("https://contacts.icloud.com/123/carddavhome/card/").unwrap();
+        let result = CardDavClient::build_vcard_url(&base, "abc-def-123").unwrap();
+        assert_eq!(
+            result.as_str(),
+            "https://contacts.icloud.com/123/carddavhome/card/abc-def-123.vcf"
+        );
+    }
+
+    #[test]
+    fn test_build_vcard_url_trailing_slash() {
+        let base = Url::parse("https://contacts.icloud.com/123/carddavhome/card/").unwrap();
+        let result = CardDavClient::build_vcard_url(&base, "some-uuid").unwrap();
+        assert!(result.as_str().ends_with("/some-uuid.vcf"));
+    }
+
+    #[test]
+    fn test_build_vcard_url_no_trailing_slash() {
+        // Even without trailing slash, should produce valid URL
+        let base = Url::parse("https://contacts.icloud.com/123/carddavhome/card").unwrap();
+        let result = CardDavClient::build_vcard_url(&base, "test-uuid").unwrap();
+        assert!(result.as_str().contains("test-uuid.vcf"));
+    }
 }
