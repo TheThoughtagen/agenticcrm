@@ -8,7 +8,7 @@ use crate::format::{self, OutputFormat};
 use crate::frontmatter;
 use crate::models::ContactFile;
 use crate::store;
-use crate::sync::{carddav::CardDavClient, config, dedup, vcard_map};
+use crate::sync::{carddav::CardDavClient, config, dedup, vcard_map, vcard_write};
 
 #[derive(Serialize)]
 pub struct SyncResult {
@@ -98,6 +98,13 @@ pub fn run_sync(force: bool, dry_run: bool, fmt: &OutputFormat) -> Result<()> {
 
         // Extract UID from the href (last path segment without .vcf)
         let uid = extract_uid_from_href(&entry.href);
+
+        // Cache raw vCard text for round-trip preservation during push
+        if !dry_run {
+            if let Err(e) = vcard_write::write_cached_vcard(&crm_root, &uid, &vcard_text) {
+                eprintln!("Warning: failed to cache vCard {}: {}", uid, e);
+            }
+        }
 
         // Map vCard to Contact
         let mapped = match vcard_map::map_vcard_to_contact(&vcard_text, &uid, &entry.etag) {
@@ -297,7 +304,7 @@ fn resolve_vcard_url(addressbook_url: &Url, href: &str) -> Result<Url> {
 
 /// Extract a UID from a vCard href path.
 /// e.g., "/123/carddavhome/card/ABC-DEF-123.vcf" -> "ABC-DEF-123"
-fn extract_uid_from_href(href: &str) -> String {
+pub fn extract_uid_from_href(href: &str) -> String {
     href.rsplit('/')
         .next()
         .unwrap_or(href)
