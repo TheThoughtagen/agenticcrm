@@ -1,287 +1,246 @@
-# Domain Pitfalls
+# Pitfalls Research: Adding Two-Way CardDAV Push Sync
 
-**Domain:** Personal CRM with CardDAV sync, ratatui TUI, and MCP server integration
-**Researched:** 2026-03-05
-**Overall confidence:** MEDIUM (no web sources available; based on training data for RFC 6352, ratatui patterns, and MCP spec knowledge up to May 2025)
-
----
+**Domain:** Adding CardDAV PUT/DELETE push, ETag conflict detection, and selective sync to existing pull-only iCloud sync
+**Researched:** 2026-03-07
+**Confidence:** HIGH (verified against RFC 6352, sabre/dav official guide, existing codebase inspection, and web-verified iCloud-specific behaviors)
 
 ## Critical Pitfalls
 
-Mistakes that cause rewrites, data loss, or architectural dead ends.
+### Pitfall 1: Lossy vCard Reconstruction Destroys iCloud Data on Push
 
-### Pitfall 1: Lossy Markdown-to-vCard Round-Tripping
+**What goes wrong:**
+The existing pull sync maps vCard fields to our Contact model via `vcard_map.rs`, but discards all unmapped vCard properties (photos, X-properties, custom fields, IMPP, RELATED, ADR structure, TEL/EMAIL TYPE parameters). When pushing back via PUT, the reconstructed vCard lacks these properties. iCloud replaces the server copy with our stripped-down version, destroying data the user added via their phone's Contacts app (contact photos, Siri suggestions, linked contacts, address labels like "home"/"work").
 
-**What goes wrong:** The CRM stores contacts as Markdown+YAML with rich freeform fields (interaction logs, family notes, interests). vCard (RFC 6352 / RFC 6350) has a fixed property set. When syncing to CardDAV and back, CRM-specific fields (tags, follow_up_cadence, interaction log, relationship type, how_we_met) have nowhere to live in vCard. Developers either lose this data silently, or try to stuff it into vCard X-properties and discover that iCloud strips or ignores unknown X-properties on write-back.
+**Why it happens:**
+The v1.0 pull sync was one-directional -- it only read vCards and mapped them to our model. There was no need to preserve unmapped properties because we never wrote back. Adding push changes this fundamentally: every PUT replaces the server's vCard wholesale.
 
-**Why it happens:** Developers assume they can treat the sync as a simple serialization problem. In reality, the CRM data model is a superset of vCard, and the CardDAV server (especially iCloud) is opinionated about what it preserves.
+**How to avoid:**
+- Store the original raw vCard text alongside each synced contact. Add a `.sync/vcards/{source_id}.vcf` cache directory (gitignored) that retains the full vCard fetched during pull.
+- On push, start from the cached original vCard, then merge only the fields our CRM tracks (name, email, phone, company, role, website, birthday, notes) back into it. This preserves photos, TYPE parameters, X-properties, and everything else.
+- If no cached vCard exists (CRM-created contact, never pulled), construct a minimal but valid vCard 3.0 from scratch.
+- The sabre/dav guide explicitly warns: "Retain the entire vCard... mapping back and forward tends to be a lossy process."
 
-**Consequences:** Data loss on sync cycles. Users lose interaction history or CRM metadata after a sync round-trip. Or the sync layer becomes impossibly complex trying to preserve everything.
+**Warning signs:**
+- Building a `contact_to_vcard()` function that constructs vCards from scratch for existing synced contacts.
+- No `.vcf` cache directory in the design.
+- The vcard_map module only has `map_vcard_to_contact` with no reverse path that considers the original.
 
-**Prevention:**
-- Design the sync as a **partial field mapping**, not a full serialization. Only sync the vCard-native fields: name, email, phone, address, birthday, company/role, social URLs, notes.
-- Store a `carddav_etag` and `carddav_href` in the YAML frontmatter for sync tracking, but never expect the CardDAV side to store CRM-specific metadata.
-- The interaction log and CRM fields (status, priority, follow_up_cadence, tags) are CRM-only. Document this boundary explicitly.
-- Use a sync metadata file (e.g., `.sync/carddav-state.json`) to track the mapping between local contact IDs and remote CardDAV hrefs/etags.
-
-**Detection:** If your sync design includes "store tags in vCard NOTE field" or "use X-ACRM-STATUS vCard extension" -- you are heading toward this pitfall.
-
-**Phase:** CardDAV sync phase. Must be addressed in the initial sync architecture design, not bolted on later.
-
----
-
-### Pitfall 2: CardDAV ETag/Conflict Mishandling Causes Data Overwrites
-
-**What goes wrong:** CardDAV uses ETags for optimistic concurrency. A PUT request must include `If-Match: <etag>` to update a contact. If the ETag has changed (someone edited the contact on their phone), the server returns 412 Precondition Failed. Developers either ignore ETags (causing silent overwrites), or fail to handle 412 properly (causing sync failures that require manual intervention).
-
-**Why it happens:** The project spec says "CRM wins on conflicts." Developers interpret this as "just PUT unconditionally." But CardDAV servers reject unconditional PUTs on existing resources (or worse, some servers silently merge). Apple's iCloud CardDAV is particularly strict about ETags.
-
-**Consequences:** Contact data on the phone gets silently overwritten without the user realizing what was lost. Or sync gets stuck on 412 errors with no recovery path.
-
-**Prevention:**
-- "CRM wins" must be implemented as: (1) GET the current server version, (2) merge/compare, (3) PUT with the fresh ETag. If 412, re-fetch and retry.
-- Never PUT without `If-Match` unless creating a new contact (use `If-None-Match: *` for creates).
-- Store ETags locally per contact in the sync state file. Refresh ETags on every sync cycle via `PROPFIND` or individual GETs.
-- Implement a simple retry loop (max 3 attempts) for ETag conflicts.
-
-**Detection:** If your sync code does `PUT` without checking the response status or without an `If-Match` header, this pitfall is active.
-
-**Phase:** CardDAV sync phase. Must be in the core sync loop implementation.
+**Phase to address:**
+Phase 1 (Push infrastructure). The vCard cache must be implemented before any PUT operations. Retrofitting the cache after push is already shipping means contacts synced in the gap lose data.
 
 ---
 
-### Pitfall 3: iCloud CardDAV Authentication Is Not Standard Basic Auth
+### Pitfall 2: Stale ETag on Push Causes 412 Failures or Silent Overwrites
 
-**What goes wrong:** Developers try to authenticate to iCloud CardDAV using Apple ID email + password. This fails because iCloud requires an **app-specific password** (generated at appleid.apple.com) and the CardDAV endpoint URL is not obvious -- it requires a discovery flow (well-known URL -> principal URL -> addressbook-home-set -> actual collection URL).
+**What goes wrong:**
+The existing pull sync stores the ETag in contact frontmatter (`etag` field) at pull time. Between pulls, the contact may be edited on iCloud (phone, web, another device). When push sends a PUT with `If-Match: <stale-etag>`, iCloud returns 412 Precondition Failed. If the developer "fixes" this by dropping `If-Match` entirely, the PUT silently overwrites the server version.
 
-**Why it happens:** Most CardDAV tutorials show simple Basic Auth against a known URL. iCloud adds multiple layers: app-specific passwords, a DNS SRV/well-known discovery chain, and URL indirection.
+**Why it happens:**
+The v1.0 system stores ETags but only uses them for pull-side change detection (`dedup::should_update`). Developers assume the stored ETag is still valid for writes, but any server-side change between sync cycles invalidates it.
 
-**Consequences:** Authentication fails immediately. Developers spend days debugging auth when the real issue is using the wrong password type or wrong endpoint URL.
+**How to avoid:**
+- Before any PUT, fetch the current ETag from iCloud via a targeted PROPFIND on that specific resource. Compare with our stored ETag.
+- If ETags match: push with `If-Match: <etag>`. The contact has not changed server-side.
+- If ETags differ: the contact was modified on iCloud since our last pull. This is a conflict. Apply "CRM wins" policy by: (1) fetching the current server vCard, (2) logging the conflict, (3) pushing our version with `If-Match: <current-server-etag>`.
+- On 412 response despite our checks (race condition), re-fetch ETag and retry up to 3 times.
+- Always use `If-None-Match: *` when creating new contacts to prevent overwriting an existing resource at that URL.
 
-**Prevention:**
-- Document clearly: users must generate an app-specific password at https://appleid.apple.com/account/manage (under "Sign-In and Security" > "App-Specific Passwords").
-- Implement the full CardDAV discovery chain: `GET /.well-known/carddav` on `contacts.icloud.com` -> follow redirect -> `PROPFIND` for `current-user-principal` -> `PROPFIND` for `addressbook-home-set` -> `PROPFIND` to list collections.
-- Store the discovered collection URL in config so discovery only runs once (but re-discover on 401/404).
-- The iCloud CardDAV host is `contacts.icloud.com` with port 443 and TLS required.
+**Warning signs:**
+- PUT requests that use the frontmatter `etag` field directly without freshness check.
+- No handling of HTTP 412 responses.
+- PUT requests without any `If-Match` header.
 
-**Detection:** If your config asks for "CardDAV URL" as a single field without a discovery mechanism, you will hit this.
-
-**Phase:** CardDAV sync phase. Must be the very first thing implemented and tested -- before any CRUD operations.
-
----
-
-### Pitfall 4: Ratatui Blocking I/O Freezes the TUI
-
-**What goes wrong:** The TUI calls `load_all_contacts()` (which does synchronous filesystem I/O via `walkdir` + `read_to_string`) on the main thread. With hundreds of contacts, the TUI freezes for visible periods. With CardDAV sync running, it freezes for seconds.
-
-**Why it happens:** The existing `store.rs` is entirely synchronous. Developers wire it directly into the ratatui render loop. Ratatui itself is immediate-mode and single-threaded -- it redraws every frame. Any blocking call in the event loop blocks the entire UI.
-
-**Consequences:** The TUI feels broken. Keypresses are lost during I/O. Users think the app crashed.
-
-**Prevention:**
-- Use a **background thread** (or tokio task if you adopt async) for all I/O operations. The TUI event loop should only read from an in-memory state and send commands to a background worker via channels (`std::sync::mpsc` or `crossbeam`).
-- Architecture pattern: `App` struct holds display state. Background thread loads data and sends `AppEvent::ContactsLoaded(Vec<ContactFile>)` over a channel. The event loop polls both terminal events AND the channel.
-- Never call `std::fs::read_to_string` or any network I/O from within the `terminal.draw(|f| { ... })` closure or the main event loop.
-- Show a loading indicator for any operation that might take >100ms.
-
-**Detection:** If `load_all_contacts()` appears anywhere in the same function as `terminal.draw()`, this pitfall is active.
-
-**Phase:** TUI phase. Must be the foundational architecture decision before building any TUI features.
+**Phase to address:**
+Phase 1 (Push infrastructure) for the ETag refresh mechanism. Phase 2 (Conflict detection) for the full conflict resolution flow.
 
 ---
 
-### Pitfall 5: MCP Server stdio Transport Conflicts with TUI Terminal Control
+### Pitfall 3: iCloud Rewrites vCards After PUT, Invalidating the Returned ETag
 
-**What goes wrong:** MCP servers typically use stdio (stdin/stdout) as their transport -- the AI client sends JSON-RPC over stdin, the server responds on stdout. But the ratatui TUI also takes control of the terminal (raw mode, alternate screen). These two uses of the terminal are fundamentally incompatible in the same process.
+**What goes wrong:**
+iCloud's CardDAV server normalizes vCards after accepting a PUT. It may reorder properties, canonicalize phone number formats, adjust line folding, add or modify `PRODID`, or strip properties it does not support. Per RFC 6352, when the stored vCard is not octet-identical to what was submitted, the server must NOT return a strong ETag in the PUT response. Many developers assume the PUT response always includes a usable ETag for subsequent operations, leading to sync state corruption.
 
-**Why it happens:** Developers try to build a single binary that is both TUI and MCP server simultaneously, or try to add MCP to the existing CLI binary without considering that MCP stdio transport hijacks stdin/stdout.
+**Why it happens:**
+The RFC allows servers to modify vCards post-PUT. iCloud exercises this right aggressively. Developers test with simple vCards that happen to survive normalization unchanged, and miss the issue.
 
-**Consequences:** The MCP server and TUI cannot run simultaneously in the same process. Attempting it corrupts terminal state, mangles JSON-RPC messages, or causes the TUI to display garbage.
+**How to avoid:**
+- After every successful PUT (201 Created or 204 No Content), check if the response includes an ETag header.
+- If ETag is present: store it.
+- If ETag is absent: immediately issue a GET (or PROPFIND for just the ETag) on the same resource URL to retrieve the server's canonical version and its ETag. Update both the local vCard cache and the stored ETag.
+- Update the contact's frontmatter `etag` field with the post-PUT ETag, not the pre-PUT one.
+- This GET-after-PUT pattern is explicitly recommended by sabre/dav documentation.
 
-**Prevention:**
-- The MCP server MUST be a separate execution mode, not a concurrent feature of the TUI. Use a subcommand: `acrm serve-mcp` that runs in stdio mode (no TUI, no colored output, pure JSON-RPC on stdin/stdout).
-- Alternatively, use an HTTP/SSE transport for MCP instead of stdio, which avoids the terminal conflict entirely. But stdio is the most widely supported MCP transport for local tools.
-- The binary can share all the business logic (store.rs, models, etc.) but the entrypoints must be mutually exclusive: `acrm tui` starts the TUI, `acrm serve-mcp` starts the MCP server.
-- Ensure `acrm serve-mcp` suppresses ALL non-JSON output (no `eprintln!`, no `colored` output, no progress indicators).
+**Warning signs:**
+- Code that assumes `response.headers().get("etag")` always returns `Some`.
+- No fallback GET after PUT.
+- Tests that mock PUT responses with ETags but do not test the no-ETag path.
 
-**Detection:** If your architecture diagram shows MCP and TUI as concurrent features of a single process, or if MCP uses stdout while the TUI is active, this pitfall is active.
-
-**Phase:** MCP phase AND TUI phase. The binary structure must accommodate both from the start. Design the subcommand split early.
-
----
-
-## Moderate Pitfalls
-
-### Pitfall 6: vCard UID Generation Causes Duplicate Contacts
-
-**What goes wrong:** When creating a new contact on the CardDAV server, the vCard must have a UID property. If you use the CRM's `id` field (a UUID) as the vCard UID, and later the same person is added independently on the phone, you get two vCards for the same person with different UIDs. The sync has no way to detect they are the same contact.
-
-**Prevention:**
-- During initial sync, match existing CardDAV contacts to CRM contacts by **name + email** (fuzzy matching), not just UID.
-- Once matched, store the CardDAV UID in the CRM frontmatter (`carddav_uid` field) and the CRM UUID in the vCard as an `X-ACRM-ID` property (though iCloud may strip this).
-- For ongoing sync, always use the stored UID mapping. Only fall back to fuzzy matching for initial bootstrap.
-- Build a manual "link/unlink" command (`acrm sync link <contact> <carddav-uid>`) for cases where automatic matching fails.
-
-**Detection:** If your sync creates a new vCard for every CRM contact on first run without checking for existing matches, duplicates will proliferate.
-
-**Phase:** CardDAV sync phase. Must be addressed in the initial sync/bootstrap logic.
+**Phase to address:**
+Phase 1 (Push infrastructure). This must be part of the core PUT implementation, not a later fix.
 
 ---
 
-### Pitfall 7: Ratatui State Management Becomes Spaghetti Without a State Machine
+### Pitfall 4: Accidental Mass Delete on iCloud When Push Encounters Unsynced Contacts
 
-**What goes wrong:** The TUI starts simple (a contact list), but quickly adds modals, search, detail views, editing, confirmation dialogs. Without a structured state machine, the event handler becomes a nest of `if current_view == X && modal_open && editing_field == Y` conditionals that is impossible to extend or debug.
+**What goes wrong:**
+The CRM has contacts from multiple sources (manual entry, LinkedIn import, iCloud pull). When implementing push, if the sync logic interprets "contact exists in CRM but not in push queue" as "should be deleted from iCloud," or if a filter misconfiguration excludes most contacts from the push set, the system could DELETE hundreds of contacts from iCloud in one sync cycle.
 
-**Prevention:**
-- Use an explicit **state enum** from day one:
-  ```rust
-  enum AppView {
-      Dashboard,
-      ContactList { selected: usize, filter: Option<String> },
-      ContactDetail { contact_id: String },
-      Editing { contact_id: String, field: EditField },
-      SyncStatus,
-  }
-  ```
-- Each variant owns its view-specific state. The event handler pattern-matches on the current view.
-- Use a **view stack** (Vec<AppView>) for navigation so "back" always works. Push on navigate, pop on back/escape.
-- Keep the `App` struct flat: `current_view: AppView`, `contacts: Vec<ContactFile>`, `status_message: Option<String>`. Do not nest state deeply.
+**Why it happens:**
+The most dangerous moment is the first push after implementing delete propagation. The sync logic must distinguish between: (a) contact was deleted from CRM and should be deleted from iCloud, (b) contact was never synced to iCloud and should be left alone, (c) contact does not match the current sync filter. Getting this wrong in any direction causes data loss.
 
-**Detection:** If your event handler has more than 3 levels of `if/else` nesting or checks multiple booleans to determine the current UI state, refactor to an enum.
+**How to avoid:**
+- Track sync state explicitly per contact. A contact should only be DELETE-eligible if it has `source: "icloud"` AND a valid `source_id` AND was previously successfully synced (has a stored ETag).
+- Never delete contacts that were created locally and never pushed.
+- Implement a hard safety limit: if more than N contacts (e.g., 10) would be deleted in a single sync cycle, abort and require `--force` confirmation. This catches filter misconfigurations.
+- Always show a preview of deletes before executing: "Will delete 3 contacts from iCloud: [names]. Proceed? [y/N]"
+- Log all deletes to a sync log file with timestamps for recovery.
 
-**Phase:** TUI phase. Must be the first architectural decision before building views.
+**Warning signs:**
+- Delete logic that iterates iCloud contacts and removes any without a local match.
+- No confirmation prompt for deletes.
+- No upper bound on batch deletes.
 
----
-
-### Pitfall 8: MCP Tool Schema Mismatch Causes Silent AI Agent Failures
-
-**What goes wrong:** MCP tools expose JSON schemas for their inputs. If the schema does not precisely match what the tool handler expects, AI agents send malformed requests that either error out or silently produce wrong results. Common issues: optional fields not marked as optional, enum values not matching the Rust enum variants, date format not specified.
-
-**Prevention:**
-- Define MCP tool schemas using `serde_json` generated from the actual Rust types. Do not hand-write JSON schemas separately -- they will drift.
-- Include `description` fields on every property -- AI agents use these to understand what to pass.
-- Use integration tests that send actual MCP requests (JSON-RPC over stdin/stdout) and verify responses. Test with malformed inputs to verify error messages are useful.
-- Map the CRM's existing CLI commands directly to MCP tools: `search_contacts`, `show_contact`, `log_interaction`, `list_due`, `add_contact`. Keep the same parameter names.
-
-**Detection:** If your MCP tool schemas are defined as string literals in the code rather than derived from types, drift is inevitable.
-
-**Phase:** MCP phase. Schema design should happen alongside tool implementation, not after.
+**Phase to address:**
+Phase 1 (Push infrastructure) for the delete safeguards. Must be in place before any DELETE requests are sent.
 
 ---
 
-### Pitfall 9: CardDAV Sync Corrupts the Git History
+### Pitfall 5: Push-Then-Pull Loop Creates Infinite Sync Cycles
 
-**What goes wrong:** CardDAV sync modifies many contact files at once. If sync auto-commits after every file write (or worse, does not commit at all), the git history becomes either noisy (hundreds of "sync" commits) or dangerous (uncommitted changes that conflict with manual edits).
+**What goes wrong:**
+Push modifies a contact on iCloud, which changes the server ETag. The next pull detects the ETag change and "updates" the local contact with the server version (which is actually the same data we just pushed, possibly reformatted by iCloud). This triggers another push because the local file was modified. The system oscillates between push and pull indefinitely, or at minimum does redundant work every cycle.
 
-**Prevention:**
-- Sync should be a single atomic operation that modifies all files, then creates ONE commit: `"sync: CardDAV sync at 2026-03-05T14:30:00"`.
-- Run sync on a clean working tree only. Before sync, check `git status` -- if there are uncommitted changes, abort with a message telling the user to commit first.
-- Store sync state (last sync timestamp, ETags, UID mappings) in `.sync/` directory, which should be gitignored. Only contact file changes go into git.
-- Provide a `--dry-run` flag that shows what would change without writing.
+**Why it happens:**
+The v1.0 pull logic uses `dedup::should_update()` which compares ETags. After a push, the ETag changes (because the server modified the vCard). Pull sees a new ETag and overwrites the local contact with the server version. If the server-normalized data differs from what we have locally (even just whitespace in the raw frontmatter), the contact file changes, triggering another push.
 
-**Detection:** If your sync writes files one-at-a-time and commits after each, or if sync state files are being committed to git, this pitfall is active.
+**How to avoid:**
+- After a successful push, immediately update the local contact's `etag` field to the new server ETag (fetched via GET-after-PUT as described in Pitfall 3).
+- The pull logic should compare ETags against the post-push ETag, not the pre-push ETag. If they match, skip the update.
+- Consider a `last_push_etag` field or sync state entry that records "we pushed this ETag." During pull, if the server ETag matches `last_push_etag`, skip -- the change originated from us.
+- Do not modify any CRM-only fields (tags, status, follow_up_cadence, interaction log) during pull updates. Only update vCard-mapped fields. This prevents pull from dirtying the file and triggering another push.
 
-**Phase:** CardDAV sync phase. Git integration strategy must be decided upfront.
+**Warning signs:**
+- Sync logs showing the same contacts being "updated" on every sync cycle.
+- Pull immediately after push shows contacts as "updated" instead of "unchanged."
 
----
-
-### Pitfall 10: vCard Parsing Is Harder Than It Looks
-
-**What goes wrong:** Developers assume vCard is a simple text format and try to parse it with string splitting. vCard 3.0 and 4.0 have subtle differences (iCloud uses vCard 3.0). Properties can span multiple lines (line folding at 75 chars), values can be escaped with backslashes, structured values use semicolons as delimiters, and character encoding varies. A hand-rolled parser will break on real-world vCards.
-
-**Prevention:**
-- Use an existing Rust vCard parsing crate. Candidates include `vcard` or `ical` (which handles vCard as well). Evaluate before the CardDAV phase begins.
-- If no Rust crate is mature enough, consider shelling out to a Python tool or wrapping a C library. But this conflicts with the "no runtime dependencies" constraint, so verify Rust crate quality first.
-- Test with real vCards exported from iCloud -- they contain surprising formatting choices (e.g., photo data as base64 inline, semicolons in names, multi-value fields).
-- Handle gracefully: if a vCard property cannot be parsed, skip it with a warning rather than failing the entire sync.
-
-**Detection:** If you find yourself writing `line.split(":")` to parse vCard properties, stop and use a library.
-
-**Phase:** CardDAV sync phase. Crate evaluation is a prerequisite task before implementation begins.
+**Phase to address:**
+Phase 2 (Conflict detection). Requires coordinating push and pull ETags in a unified sync state model.
 
 ---
 
-## Minor Pitfalls
+## Technical Debt Patterns
 
-### Pitfall 11: Ratatui Scrolling and Viewport Bugs with Large Contact Lists
+Shortcuts that seem reasonable but create long-term problems.
 
-**What goes wrong:** With hundreds of contacts, the list widget needs proper scrolling. Developers implement scrolling manually and get off-by-one errors, fail to keep the selected item visible, or break scrolling when filters change the list length.
+| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
+|----------|-------------------|----------------|-----------------|
+| Skip vCard caching, reconstruct from Contact model | Simpler implementation, no cache directory | Destroys photos, TYPE params, X-properties on every push | Never -- data loss is unacceptable |
+| PUT without If-Match header | Avoids complexity of ETag management | Silent data overwrites on iCloud, violates RFC 6352 | Never |
+| Store sync state in frontmatter only (no external state file) | No new files to manage | Cannot track push-specific state (last_push_etag, pending deletes) without polluting contact files | Acceptable for basic ETag storage, but need external state for push metadata |
+| Skip GET-after-PUT ETag refresh | One fewer HTTP request per push | Stale ETags cause 412 failures on next push, or pull detects false changes | Never -- iCloud normalizes aggressively |
+| Push all contacts regardless of source | Simpler push logic | Pushes LinkedIn imports and manual contacts to iCloud unexpectedly | Never -- only push contacts with `source: "icloud"` or explicitly opted in |
 
-**Prevention:**
-- Use ratatui's built-in `List` widget with `ListState`, which handles scrolling and selection natively. Do not implement manual offset tracking.
-- When applying a filter, reset the selection index to 0 and reset the scroll offset. Forgetting this causes panics (index out of bounds) or invisible selection.
-- Test with 0 contacts, 1 contact, and 500+ contacts.
+## Integration Gotchas
 
-**Phase:** TUI phase. Test edge cases during list view implementation.
+Common mistakes when connecting to iCloud CardDAV for write operations.
 
----
+| Integration | Common Mistake | Correct Approach |
+|-------------|----------------|------------------|
+| iCloud PUT create | Using the contact's UUID as the vCard filename | Generate a new UUID for the filename (`{uuid}.vcf`) and set the vCard UID property separately. The URL filename and vCard UID are independent identifiers. |
+| iCloud PUT create | Missing `If-None-Match: *` header | Always include `If-None-Match: *` on creates to prevent overwriting an existing resource at that URL. Server returns 412 if resource already exists. |
+| iCloud PUT update | Using the old ETag from frontmatter | Fetch current ETag via PROPFIND before PUT. Use fresh ETag in `If-Match`. |
+| iCloud DELETE | Deleting without `If-Match` | Include `If-Match: <current-etag>` on DELETE to prevent deleting a contact that was modified since last sync. |
+| iCloud vCard format | Sending vCard 4.0 format | iCloud uses vCard 3.0. Ensure `VERSION:3.0` in all pushed vCards. Key differences: vCard 3.0 requires both N and FN, uses `TYPE=` parameter syntax differently, and does not support all 4.0 properties. |
+| iCloud Content-Type | Using `text/vcard` without charset | Use `Content-Type: text/vcard; charset=utf-8` on all PUT requests. |
+| iCloud URL construction | Constructing PUT URL by appending to addressbook URL | The PUT URL for updates must match the exact `href` returned by PROPFIND. For creates, append `{uuid}.vcf` to the addressbook collection URL. |
+| iCloud required fields | Sending vCard without N property | iCloud rejects vCards missing N (structured name). Always include both FN and N, even if N is just `LastName;FirstName;;;`. |
 
-### Pitfall 12: serde_yaml Field Ordering Is Not Preserved
+## Performance Traps
 
-**What goes wrong:** The project convention says "keep frontmatter fields in the order defined in the template." But `serde_yaml::to_string` serializes fields in struct definition order by default, and if fields are added for sync metadata, the frontmatter order changes, causing noisy git diffs.
+Patterns that work at small scale but fail with real contact lists.
 
-**Prevention:**
-- Keep the `Contact` struct field order matching the template order. When adding new fields (carddav_uid, carddav_etag), add them at the end in a clearly marked section.
-- Consider using `serde_yaml`'s `#[serde(flatten)]` or a custom serializer if field ordering becomes problematic. But test first -- `serde_yaml` with `derive(Serialize)` preserves struct field order, which is usually sufficient.
-- Any new sync metadata fields should be added to both the struct AND the template simultaneously.
+| Trap | Symptoms | Prevention | When It Breaks |
+|------|----------|------------|----------------|
+| Individual PUT per contact on first push | First push of 500+ contacts takes 10+ minutes | Batch pushes with delays. There is no multiput in CardDAV, but space requests 200ms apart to avoid rate limits | >100 contacts |
+| PROPFIND Depth:1 to refresh all ETags before push | Works, but fetches ETags for all contacts when maybe only 3 changed | Track dirty contacts locally. Only refresh ETags for contacts that were modified since last sync | >500 contacts |
+| No rate limit handling | iCloud returns 503 after ~50-100 rapid requests, sync fails midway | Implement exponential backoff on 429/503. Start with 1s delay, double on each retry, max 60s. Cap at 5 retries per request | >50 rapid requests |
+| Fetching full vCard on every push for ETag check | Wastes bandwidth fetching vCard bodies when we only need ETags | Use targeted PROPFIND for `getetag` only, not full GET | >100 contacts |
 
-**Phase:** CardDAV sync phase. Relevant when extending the Contact struct for sync metadata.
+## Security Mistakes
 
----
+Domain-specific security issues for CardDAV write operations.
 
-### Pitfall 13: MCP JSON Output Breaks Existing CLI Colored Output
+| Mistake | Risk | Prevention |
+|---------|------|------------|
+| Logging vCard content (including phone/email) at debug level | PII in log files that may be committed or shared | Log contact names and source_ids only. Never log raw vCard content or frontmatter in production |
+| Storing the app-specific password in sync state files | Credential leak via git or file sharing | Already mitigated -- password is in macOS Keychain via `keyring` crate. Ensure no refactoring moves it to config files |
+| No TLS certificate validation on PUT/DELETE | MITM could intercept and modify contact data in transit | reqwest validates TLS by default. Do not add `.danger_accept_invalid_certs(true)` even for testing |
+| Pushing contacts with `status: "archived"` to iCloud | Archived contacts reappear on user's phone | Filter out archived contacts from push. Only push `active` and `dormant` status contacts |
 
-**What goes wrong:** The existing CLI uses `colored` crate for terminal output. When adding `--json` output mode (needed for MCP and scripting), developers forget to disable colored output, and JSON responses contain ANSI escape codes that break JSON parsing.
+## UX Pitfalls
 
-**Prevention:**
-- Check for `--json` flag (or `NO_COLOR` env var) at the top level and disable colored output globally.
-- Better: structure commands to return a result type, then format at the output layer. Commands return `CommandResult`, the output layer either pretty-prints with color or serializes to JSON.
-- The MCP server mode should always use the JSON path, never the colored path.
+Common user experience mistakes when adding push sync.
 
-**Detection:** If `colored::control::set_override(false)` is not called in JSON/MCP mode, ANSI codes will leak into output.
+| Pitfall | User Impact | Better Approach |
+|---------|-------------|-----------------|
+| Auto-push on every save without opt-in | User edits CRM-only fields (tags, notes), triggering unexpected iCloud writes | Auto-push must be opt-in via config flag. Default to manual `acrm sync push`. |
+| No feedback during push | User thinks app froze during multi-contact push | Show progress: "Pushing 3/47 contacts... [contact name]" |
+| Silent conflict resolution | User does not know CRM overwrote their phone edits | Always print conflicts: "Conflict: Jane Smith was modified on iCloud (ETag changed). CRM version pushed (CRM wins policy)." |
+| Delete without undo | User deletes contact from CRM, push deletes from iCloud, no recovery | Archive instead of delete. Push only propagates actual deletes, not archives. Provide `acrm sync undo-delete` that re-pushes from archive |
+| Pushing all contacts on first push | User with 500 CRM contacts floods iCloud with contacts they did not want synced | First push should require explicit opt-in per contact or per tag. Or only push contacts with `source: "icloud"` by default |
 
-**Phase:** JSON output phase (precedes MCP). Must be solved before MCP implementation.
+## "Looks Done But Isn't" Checklist
 
----
+Things that appear complete but are missing critical pieces.
 
-### Pitfall 14: CardDAV Rate Limiting and Timeout on Large Initial Syncs
+- [ ] **PUT works:** Often missing If-Match header -- verify 412 response handling works
+- [ ] **DELETE works:** Often missing confirmation prompt -- verify batch delete safety limit
+- [ ] **ETag tracking:** Often missing GET-after-PUT fallback -- verify behavior when PUT response has no ETag header
+- [ ] **Conflict detection:** Often missing "both sides changed" case -- verify behavior when local AND server both modified since last sync
+- [ ] **Selective sync:** Often missing filter persistence -- verify filters are stored in config and survive restarts
+- [ ] **New contact push:** Often missing vCard 3.0 N property -- verify iCloud accepts the generated vCard
+- [ ] **Delete propagation:** Often missing source check -- verify only `source: "icloud"` contacts trigger iCloud deletes
+- [ ] **Auto-push:** Often missing debouncing -- verify rapid saves do not trigger multiple concurrent pushes
+- [ ] **Rate limiting:** Often missing backoff -- verify behavior when iCloud returns 503
 
-**What goes wrong:** First sync with hundreds of contacts sends hundreds of GET/PUT requests to iCloud. iCloud rate-limits aggressively (exact limits undocumented but real). The sync hangs or fails partway through, leaving the sync state inconsistent.
+## Recovery Strategies
 
-**Prevention:**
-- Use `REPORT` with `addressbook-multiget` (RFC 6352 Section 8.7) to fetch multiple vCards in a single request instead of individual GETs.
-- Implement exponential backoff on 429/503 responses.
-- Use `PROPFIND` with `getctag` (collection tag) to detect whether the collection has changed at all before doing a full sync. If ctag is unchanged, skip the sync entirely.
-- Make sync resumable: track which contacts have been synced and continue from where it left off.
+When pitfalls occur despite prevention, how to recover.
 
-**Phase:** CardDAV sync phase. Critical for initial bootstrap sync with existing iCloud contacts.
+| Pitfall | Recovery Cost | Recovery Steps |
+|---------|---------------|----------------|
+| Data loss from lossy vCard push | HIGH | Restore from git history (`git log -- contacts/name.md`). Re-pull from iCloud to recover server-side data. Cannot recover iCloud-side data destroyed by push unless iCloud has its own backup/undo. |
+| Mass accidental delete on iCloud | HIGH | If caught quickly, contacts may be in iCloud's "Recently Deleted" (recoverable for 30 days). Otherwise, restore from iPhone backup or Time Machine backup of `~/Library/Application Support/AddressBook/`. |
+| Infinite sync loop | LOW | Stop sync. Clear sync state (delete `.sync/` directory). Re-run initial pull to re-establish baseline ETags. |
+| 412 failures blocking all pushes | LOW | Re-pull to refresh all ETags. Then retry push. If persistent, force-push with fresh ETags from PROPFIND. |
+| Stale ETag causing silent overwrite | MEDIUM | Check git history for the overwritten contact. Re-pull from iCloud to get current server state. Manually merge if needed. |
 
----
+## Pitfall-to-Phase Mapping
 
-## Phase-Specific Warnings
+How roadmap phases should address these pitfalls.
 
-| Phase Topic | Likely Pitfall | Mitigation |
-|-------------|---------------|------------|
-| CardDAV sync design | Lossy round-tripping (Pitfall 1) | Define the field mapping boundary first. Document which fields sync and which do not. |
-| CardDAV auth | iCloud auth complexity (Pitfall 3) | Implement discovery chain first. Test with real iCloud account before building CRUD. |
-| CardDAV initial sync | Duplicate contacts (Pitfall 6), Rate limiting (Pitfall 14) | Build fuzzy matching for bootstrap. Use multiget requests. |
-| CardDAV conflict handling | ETag mishandling (Pitfall 2) | Always use If-Match. Implement retry on 412. |
-| CardDAV vCard parsing | Format complexity (Pitfall 10) | Evaluate Rust vCard crates before starting. Test with real iCloud exports. |
-| CardDAV git integration | History corruption (Pitfall 9) | Single commit per sync. Clean working tree check. Gitignore sync state. |
-| TUI architecture | Blocking I/O (Pitfall 4) | Background thread + channel pattern from day one. |
-| TUI state management | Spaghetti state (Pitfall 7) | Enum-based view state with view stack. |
-| TUI + MCP coexistence | stdio conflict (Pitfall 5) | Separate subcommands. Plan binary structure early. |
-| MCP tool design | Schema drift (Pitfall 8) | Derive schemas from Rust types. Integration tests. |
-| JSON output mode | ANSI in JSON (Pitfall 13) | Output layer abstraction. Solve before MCP phase. |
-| Contact struct changes | YAML field ordering (Pitfall 12) | Add new fields at end. Keep struct order matching template. |
+| Pitfall | Prevention Phase | Verification |
+|---------|------------------|--------------|
+| Lossy vCard reconstruction (P1) | Phase 1: Push infrastructure | Verify `.sync/vcards/` cache exists and is populated during pull. Round-trip test: pull contact, push unchanged, verify iCloud vCard is identical. |
+| Stale ETag on push (P2) | Phase 1: Push infrastructure | Unit test: PUT with stale ETag returns 412. Integration test: modify contact on iCloud between pull and push, verify conflict detected. |
+| iCloud rewrites vCard (P3) | Phase 1: Push infrastructure | Integration test: push a contact, check if PUT response has ETag. If not, verify GET-after-PUT retrieves the new ETag. |
+| Accidental mass delete (P4) | Phase 1: Push infrastructure | Test: filter out all contacts, verify no deletes sent. Test: delete 15 contacts, verify safety limit triggers abort. |
+| Infinite sync loop (P5) | Phase 2: Conflict detection | Test: push a contact, immediately pull, verify contact shows as "unchanged." Run 3 consecutive sync cycles and verify no oscillation. |
+| vCard 3.0 format errors (Integration) | Phase 1: Push infrastructure | Test: create contact in CRM, push to iCloud, verify iCloud Contacts app displays it correctly with all fields. |
+| Rate limiting (Performance) | Phase 1: Push infrastructure | Test: push 20+ contacts rapidly, verify backoff kicks in on 503. Verify sync completes despite throttling. |
+| Auto-push without opt-in (UX) | Phase 3: Selective sync + auto-push | Verify auto-push config defaults to `false`. Verify toggling config requires explicit user action. |
 
 ## Sources
 
-- RFC 6352 (CardDAV specification) -- training data, MEDIUM confidence
-- RFC 6350 (vCard 4.0 specification) -- training data, MEDIUM confidence
-- ratatui architecture patterns -- training data from ratatui docs and examples, MEDIUM confidence
-- MCP specification (modelcontextprotocol.io) -- training data up to May 2025, MEDIUM confidence
-- iCloud CardDAV behavior -- training data from community reports, LOW-MEDIUM confidence (Apple does not document rate limits or X-property handling officially)
-- Existing codebase analysis -- HIGH confidence (directly inspected `store.rs`, `contact.rs`, `Cargo.toml`)
+- [RFC 6352 - CardDAV Specification](https://www.rfc-editor.org/rfc/rfc6352) -- ETag requirements, If-Match semantics, PUT/DELETE behavior (HIGH confidence)
+- [sabre/dav: Building a CardDAV Client](https://sabre.io/dav/building-a-carddav-client/) -- Sync algorithm, vCard preservation warning, GET-after-PUT pattern, UID/URL independence (HIGH confidence)
+- [DAVx5 Technical Documentation](https://manual.davx5.com/technical_information.html) -- If-None-Match for creates, CTag-based change detection (HIGH confidence)
+- [Apple Developer Forums: Rate Limit Exceeded for CardDAV](https://developer.apple.com/forums/thread/722170) -- iCloud rate limiting exists but limits are undocumented (MEDIUM confidence)
+- [The Eclectic Light Company: iCloud Throttling](https://eclecticlight.co/2024/02/22/icloud-does-throttle-data-syncing-after-all/) -- iCloud throttles aggressively, stops responding entirely rather than slowing (MEDIUM confidence)
+- [Apple Developer Forums: FN property empty](https://developer.apple.com/forums/thread/724626) -- iCloud strict vCard 3.0 validation, FN/N required (MEDIUM confidence)
+- [DAVx5 iCloud compatibility page](https://www.davx5.com/tested-with/icloud) -- iCloud DNS/SRV issues, general interoperability notes (MEDIUM confidence)
+- Existing codebase inspection: `src/sync/carddav.rs`, `src/sync/vcard_map.rs`, `src/commands/sync.rs`, `src/sync/dedup.rs` (HIGH confidence)
 
-**Note:** Web search and web fetch were unavailable during this research. All findings are based on training data (cutoff May 2025). iCloud-specific behaviors (Pitfalls 3, 14) should be validated against current iCloud behavior during implementation, as Apple may have changed endpoints or policies.
+---
+*Pitfalls research for: Adding two-way CardDAV push sync to AgenticCRM v1.1*
+*Researched: 2026-03-07*

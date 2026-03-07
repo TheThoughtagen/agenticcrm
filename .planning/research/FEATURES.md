@@ -1,199 +1,209 @@
 # Feature Landscape
 
-**Domain:** Plain-text personal CRM with CLI/TUI, CardDAV sync, and MCP agent integration
-**Researched:** 2026-03-05
-**Overall confidence:** MEDIUM (based on training data, ecosystem knowledge, and codebase analysis; web search unavailable for verification)
+**Domain:** Two-way iCloud CardDAV sync (push, conflict detection, selective filtering, auto-push)
+**Researched:** 2026-03-07
+**Overall confidence:** HIGH (RFC 6352 is stable standard; existing pull sync validates protocol understanding)
+
+## Existing Foundation (Already Built in v1.0)
+
+These are the features this milestone builds on top of. All have been validated and are working.
+
+| Feature | Implementation | Relevant Code |
+|---------|---------------|---------------|
+| CardDAV PROPFIND discovery | 3-step principal/home/collection chain | `sync/carddav.rs` |
+| vCard list fetch (PROPFIND depth 1) | Returns href + ETag per contact | `CardDavClient::fetch_vcard_list()` |
+| vCard download (GET) | Fetches raw vCard text | `CardDavClient::fetch_vcard()` |
+| vCard-to-Contact mapping | calcard parsing, name fallback chain | `sync/vcard_map.rs` |
+| Contact dedup by source_id | Matches by CardDAV UID stored in frontmatter | `sync/dedup.rs` |
+| ETag storage in frontmatter | Stored as `etag` field on each contact | schema + frontmatter preservation |
+| Keychain credential storage | apple_id in config, password in macOS Keychain | `sync/config.rs` |
+| `acrm sync` pull command | Full pull-sync with --force and --dry-run | `commands/sync.rs` |
+| Raw frontmatter preservation | YAML comments and field order survive edits | `frontmatter.rs` |
 
 ## Table Stakes
 
-Features users expect from a personal CRM tool. Missing any of these and users will look elsewhere or revert to a spreadsheet.
+Features that any two-way sync implementation must have. Without these, push sync is either broken or dangerous.
 
-### Core Contact Management (Existing)
+### Push: Create New Contacts on iCloud
 
-| Feature | Why Expected | Complexity | Status | Notes |
-|---------|--------------|------------|--------|-------|
-| Add/edit/delete contacts | Fundamental CRUD | Low | Partial (no edit/delete CLI) | Edit command is in PROJECT.md active list |
-| Search contacts | Users need to find people fast | Low | Exists | Full-text across name, company, tags, notes |
-| List with filters | Browse and narrow down | Low | Exists | Currently only tag filter; needs status, company, relationship filters |
-| View contact details | See everything about a person | Low | Exists | `acrm show` works |
-| Interaction logging | Track when you last talked | Low | Exists | `acrm log` appends to markdown body |
-| Follow-up reminders | The core CRM value prop | Low | Exists | `acrm due` shows overdue contacts |
-| Import contacts | Bootstrap from existing data | Med | Partial | LinkedIn CSV import via shell script only |
+| Feature | Why Expected | Complexity | Dependencies |
+|---------|--------------|------------|-------------|
+| Contact-to-vCard generation | Must produce valid vCard 3.0 for iCloud to accept | Med | calcard builder module, vcard_map reverse mapping |
+| PUT with If-None-Match: * | Prevents overwriting existing server resource on create | Low | New method on CardDavClient |
+| UUID generation for href | Client determines both URL path and UID in vCard | Low | uuid crate (already a dependency) |
+| Store source_id on newly pushed contacts | Track the server-side UID for future sync | Low | Existing frontmatter update logic |
+| Store returned ETag after PUT | Server returns new ETag; must save for future conflict checks | Low | Parse ETag from 201 response header |
 
-### CLI Completeness (Needed)
+**Expected behavior:** When a contact has `source: manual` (or no source_id), `acrm sync push` generates a vCard, PUTs it to `{addressbook_url}/{uuid}.vcf` with `If-None-Match: *`, saves the returned ETag and sets `source: icloud` + `source_id: {uuid}`.
 
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| Edit contact fields from CLI | Cannot currently modify frontmatter via CLI | Med | Must parse YAML, update specific field, re-serialize without data loss |
-| Delete/archive contacts | No way to remove contacts via CLI | Low | Archive (status change) preferred over delete (file removal) |
-| JSON output mode (`--json`) | Agent-friendliness is a core promise | Med | Every command needs a `--format json` flag; output should be structured, stable |
-| Bulk tag/untag operations | Managing hundreds of contacts needs batch ops | Med | `acrm tag add --filter "company:Acme" networking` pattern |
-| Sort options for list | Users need different views | Low | Sort by name, last_contacted, next_follow_up, priority |
-| Filter by multiple criteria | Tag-only filtering is too limited | Low | Combine status, relationship, priority, company filters |
-| Contact merge/dedup | Imports create duplicates | High | Matching heuristics on name/email, field merge strategy needed |
+### Push: Update Existing Contacts on iCloud
 
-### Data Integrity (Needed)
+| Feature | Why Expected | Complexity | Dependencies |
+|---------|--------------|------------|-------------|
+| PUT with If-Match: "{etag}" | Conditional update prevents overwriting server changes | Low | Existing ETag from frontmatter |
+| Full vCard replacement on PUT | CardDAV requires replacing the entire vCard, not field-level patches | Med | Contact-to-vCard generation |
+| Handle 412 Precondition Failed | Server rejects if ETag mismatch (someone edited on phone) | Med | Conflict detection flow |
+| Update stored ETag after successful PUT | Track the new server version | Low | Parse ETag from 204 response header |
 
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| Schema validation on write | Prevent corrupt/invalid contact files | Med | Validate required fields, enum values, date formats before writing |
-| Safe serialization round-trip | Editing must not lose unknown fields or reorder YAML | High | Current `serde_yaml::to_string` may drop comments and reorder; needs custom serializer or operate on raw YAML |
-| Automatic next_follow_up calculation | Logging an interaction should compute next date from cadence | Low | Parse cadence string ("monthly" -> +30 days), update on `acrm log` |
+**Expected behavior:** For contacts with `source: icloud` and a `source_id`, PUT the full vCard to `{addressbook_url}/{source_id}.vcf` with `If-Match: "{etag}"`. On 204, update local ETag. On 412, enter conflict detection flow.
+
+### Push: Delete Contacts on iCloud
+
+| Feature | Why Expected | Complexity | Dependencies |
+|---------|--------------|------------|-------------|
+| DELETE with If-Match: "{etag}" | Prevents deleting a contact someone else modified | Low | Existing ETag + source_id |
+| Track deletion intent | Must know which contacts were deleted/archived locally since last sync | Med | Needs a deletion log or tombstone mechanism |
+| Handle 404 on delete (already gone) | Server contact may already be deleted; this is not an error | Low | HTTP status handling |
+
+**Expected behavior:** When a contact with `source: icloud` is deleted or archived locally, `acrm sync push` sends DELETE to `{addressbook_url}/{source_id}.vcf` with `If-Match`. On success (204) or already-gone (404), clean up local tracking. On 412, warn user.
+
+### ETag-Based Conflict Detection
+
+| Feature | Why Expected | Complexity | Dependencies |
+|---------|--------------|------------|-------------|
+| Pre-push ETag check | Before pushing, compare local ETag with server's current ETag | Med | PROPFIND to get current server ETags |
+| CRM-wins conflict resolution (default) | PROJECT.md mandates: "CRM is source of truth" | Low | Policy decision, already documented |
+| Conflict warning output | Show user which contacts had server-side changes that will be overwritten | Low | CLI output formatting |
+| --force flag to skip conflict check | Power users can override without prompt | Low | Existing pattern from pull sync |
+
+**Expected behavior:** Before pushing, fetch current ETags from server via PROPFIND. If server ETag differs from stored ETag AND local data has changed, warn user: "Contact X was modified on iCloud. CRM version will overwrite. Use --force to skip." Default behavior: CRM wins, but warn. This matches PROJECT.md constraint.
+
+### `acrm sync push` Command
+
+| Feature | Why Expected | Complexity | Dependencies |
+|---------|--------------|------------|-------------|
+| Manual push trigger | Users must be able to explicitly push changes | Low | New SyncAction variant |
+| --dry-run flag | Show what would be pushed without actually pushing | Low | Existing pattern from pull |
+| --force flag | Skip conflict checks, push everything | Low | Existing pattern from pull |
+| Push result summary | "X created, Y updated, Z deleted, W conflicts" | Low | Existing SyncResult pattern |
+| JSON output support | `--format json` for agent consumption | Low | Existing OutputFormat system |
+
+**Expected behavior:** `acrm sync push [--dry-run] [--force]` discovers address book, fetches current server ETags, compares with local state, pushes changes (create/update/delete), reports results. Follows same UX patterns as existing pull sync.
 
 ## Differentiators
 
-Features that set AgenticCRM apart from typical personal CRMs. Not expected, but deliver outsized value.
+Features that go beyond basic push sync. Valuable but not strictly required for correctness.
 
-### CardDAV Sync (iCloud/Apple Contacts)
+### Selective Sync Filtering
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Pull contacts from iCloud | Bootstrap CRM from existing phone contacts | High | CardDAV GET/REPORT on Apple's CardDAV endpoint; vCard 3.0/4.0 parsing required |
-| Push contacts to iCloud | Changes in CRM appear on phone | High | CardDAV PUT with ETag-based conflict detection; must generate valid vCard |
-| Two-way sync with CRM-wins conflict resolution | Keep both sources updated | Very High | Requires sync state tracking (ETags, CTag, sync tokens), change detection, field-level merge |
-| Sync status/metadata tracking | Know when contacts were last synced, detect drift | Med | Store sync metadata (ETag, last-synced timestamp, source_id) in frontmatter |
-| Selective sync (filter which contacts sync) | Not every CRM contact should go to phone | Low | Tag-based or status-based filter for sync scope |
+| Feature | Value Proposition | Complexity | Dependencies |
+|---------|-------------------|------------|-------------|
+| Filter push by tags | Only push contacts tagged "sync-to-icloud" | Low | Tag matching on Contact struct |
+| Filter push by status | Only push active contacts (not archived/dormant) | Low | Status matching |
+| Filter pull by existing config | Apply same filters to pull direction | Low | Config integration |
+| Sync filter config in sync.toml | Persist filter preferences | Low | Extend existing config parser |
+| --tag and --status CLI flags | Override config filters per-run | Low | clap argument additions |
 
-**CardDAV implementation details worth noting:**
-- Apple's CardDAV server lives at `https://contacts.icloud.com` and requires app-specific passwords (2FA)
-- The protocol uses WebDAV with PROPFIND/REPORT/PUT/DELETE methods
-- vCard parsing/generation is the real work: vCard 3.0 (Apple default) has quirks around encoding, photo handling, custom properties
-- Sync tokens (RFC 6578) enable efficient incremental sync instead of full re-download
-- Field mapping between vCard properties and the CRM's YAML schema needs explicit definition (e.g., vCard `ORG` -> `company`, `TITLE` -> `role`, `TEL` -> `phone[]`)
-- CRM has richer fields (tags, relationship, status, priority, follow_up_cadence) that have no vCard equivalent -- these are CRM-only and must survive round-trips
+**Expected behavior:** Config file (`~/.config/acrm/sync.toml`) gains optional filter fields:
 
-### TUI Dashboard (ratatui)
+```toml
+apple_id = "user@icloud.com"
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Contact browser with table view | Visual overview of all contacts | Med | Scrollable table with columns: name, company, status, last_contacted, next_follow_up |
-| Contact detail pane | See full details without switching context | Med | Split-pane layout: list on left, detail on right |
-| Keyboard-driven navigation | Fast workflow for power users | Low | vim-style keys (j/k/gg/G), tab between panes, / for search |
-| Inline search/filter | Narrow list in real-time | Med | Fuzzy matching as you type, filter by tag/status with keybindings |
-| Follow-up dashboard | At-a-glance view of who needs attention | Med | Overdue contacts highlighted, sorted by urgency, quick-log action |
-| Quick interaction logging | Log from TUI without leaving context | Med | Modal dialog: select type, enter summary, auto-updates contact |
-| Status bar with stats | Contextual information | Low | Total contacts, overdue count, active filters displayed |
-| Color-coded priority/status | Visual hierarchy | Low | Red for overdue, yellow for due-today, green for active, dim for archived |
+[filters]
+push_tags = ["sync-to-icloud"]    # only push contacts with these tags
+push_status = ["active"]           # only push contacts with these statuses
+pull_tags = []                     # empty = pull all
+pull_status = []                   # empty = pull all
+```
 
-**TUI architecture notes:**
-- ratatui uses an immediate-mode rendering model: rebuild the entire UI each frame
-- Standard pattern: App struct holds state, `update()` handles events, `draw()` renders
-- Should use crossterm backend (most portable, works on macOS/Linux/Windows)
-- Event loop should be async or use a separate thread for input handling
-- Consider tui-textarea for text input widgets and tui-input for single-line inputs
+CLI flags override config: `acrm sync push --tag work --status active`. Default (no filters) = sync everything, matching current pull behavior.
 
-### MCP Tool Server
+### Auto-Push on Save
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Search contacts tool | AI agents can find people in your network | Med | `search_contacts(query, filters)` -> JSON results |
-| Get contact details tool | Agent reads full contact info | Low | `get_contact(name_or_id)` -> full contact JSON |
-| Log interaction tool | Agent records conversations/meetings | Low | `log_interaction(contact, type, summary, notes)` |
-| List due follow-ups tool | Agent proactively reminds you | Low | `get_due_followups()` -> list of overdue contacts |
-| Add contact tool | Agent creates contacts from context | Low | `add_contact(name, fields)` -> created contact |
-| Update contact tool | Agent enriches contact data | Med | `update_contact(name_or_id, fields)` -> updated contact |
-| Relationship graph query | Agent understands your network topology | High | `find_connections(between, through)` -> paths, shared tags |
-| Bulk query with filters | Agent does complex lookups | Med | `query_contacts(filters: {tags, status, company, relationship})` |
+| Feature | Value Proposition | Complexity | Dependencies |
+|---------|-------------------|------------|-------------|
+| File watcher for contacts/ directory | Detect when contact files change on disk | Med | notify crate + debouncing |
+| Auto-push on file modification | Changes propagate to iCloud without manual `sync push` | Med | File watcher + push logic |
+| `acrm sync watch` daemon command | Long-running process that watches and pushes | Med | New CLI subcommand |
+| Debounced push (batch changes) | Avoid pushing on every keystroke during bulk edits | Med | notify-debouncer-mini |
+| Config toggle for auto-push | Enable/disable in sync.toml | Low | Config extension |
 
-**MCP implementation details:**
-- MCP uses JSON-RPC 2.0 over stdio (primary) or SSE transport
-- Server declares tools via `tools/list` method, each tool has a JSON Schema for its parameters
-- The server binary should be separate from the CLI (`acrm-mcp` or `acrm mcp serve`)
-- Tools should return structured JSON, not human-formatted text
-- Resources (read-only data exposure) could expose the contact list and individual contacts as URIs
-- Consider also exposing prompts for common CRM workflows (e.g., "draft follow-up email to X")
-- The Rust `rmcp` crate or `mcp-server` crate can handle the protocol layer; alternatively, implement the thin JSON-RPC layer directly since the protocol is straightforward
+**Expected behavior:** `acrm sync watch` starts a long-running process that watches the `contacts/` directory. When files change (create, modify, delete), it waits a configurable debounce period (default 5 seconds), then pushes changed contacts to iCloud. Only pushes contacts that match sync filters.
 
-### Plain-Text Power Features
+**Alternative (simpler):** Instead of a file watcher daemon, auto-push could be a flag on write commands: `acrm edit --push`, `acrm log --push`, `acrm delete --push`. This avoids the complexity of a daemon process and the notify dependency. The PROJECT.md says "optional auto-push on save config" which is ambiguous -- either approach satisfies it.
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Git integration (auto-commit on changes) | Full history of every contact change for free | Low | Optional `--git-commit` flag or config option; run `git add + commit` after writes |
-| Grep-friendly output | Unix philosophy; pipe to other tools | Low | `--format tsv` for shell pipeline integration |
-| Export to vCard/CSV | Get data out for other tools | Med | Generate vCard 3.0 or CSV from contact files |
-| Contact templates | Quickly add contacts with pre-filled fields for specific contexts | Low | Template inheritance: `acrm add --template conference-lead "Name"` |
+### Bidirectional Sync in One Command
+
+| Feature | Value Proposition | Complexity | Dependencies |
+|---------|-------------------|------------|-------------|
+| `acrm sync` does pull then push | Single command for full sync | Low | Compose existing pull + new push |
+| CTag-based quick check | Skip full sync if nothing changed on server | Low | Parse CTag from PROPFIND |
+| Sync direction flags | `acrm sync --pull-only` / `--push-only` | Low | CLI flags |
+
+**Expected behavior:** Default `acrm sync` (with no subcommand) changes from pull-only to pull-then-push. First pull new/changed contacts from iCloud, then push local changes to iCloud. CTag check avoids unnecessary pull when server hasn't changed. `acrm sync push` and `acrm sync pull` remain available for directional sync.
 
 ## Anti-Features
 
-Features to explicitly NOT build. These would undermine the core value proposition.
+Features to explicitly NOT build for this milestone.
 
 | Anti-Feature | Why Avoid | What to Do Instead |
 |--------------|-----------|-------------------|
-| Web UI | Scope creep; violates CLI/TUI-first philosophy; would need a web framework, auth, hosting | Use TUI for visual interface, MCP for agent access |
-| Cloud hosting / multi-user | Personal CRM by design; cloud adds complexity, cost, privacy concerns | Stay local-first; git remote handles backup/sync between devices |
-| Built-in email client | Massive scope; many better email tools exist | Log interactions manually or via agent; link to email threads |
-| AI-powered contact enrichment | Privacy concern; requires API keys and external services; data quality is unreliable | Let the user or their AI agent enrich contacts deliberately via MCP tools |
-| Calendar integration | Complex (CalDAV/OAuth), tangential to CRM core | Log meetings as interactions; let agents handle calendar via separate tools |
-| Social media auto-scraping | Privacy/TOS violations; brittle scrapers; maintenance burden | Support manual LinkedIn CSV import; let users paste info |
-| Mobile app | Massive scope; terminal apps work via SSH/Termux | Access via terminal on mobile, or via AI agent integration |
-| Notification system | A CRM should not be a notification source; that is the agent's job | `acrm due` is pull-based; agents poll via MCP and notify through their own channels |
-| Contact scoring / lead scoring | Enterprise CRM feature; over-engineers a personal tool | Use priority (high/med/low) and status (active/dormant/lost-touch/archived) |
-| Full-text indexing / search engine | Over-engineering; grep on flat files is fast enough for personal scale (<10K contacts) | Linear scan with in-memory filtering; optimize only if profiling shows need |
+| Field-level merge on conflict | Massively complex; which fields win from which side? | CRM wins entirely. User is warned, can re-pull after. |
+| Server-wins conflict mode | Contradicts PROJECT.md constraint "CRM is source of truth" | Always CRM wins. If user wants server version, re-pull with --force. |
+| Real-time bidirectional sync | Requires persistent connection, webhook support Apple doesn't offer | Use manual `acrm sync` or periodic `acrm sync watch` with polling. |
+| Sync multiple address books | iCloud typically has one default address book; multi-book is rare | Sync the primary address book only. |
+| Photo sync | vCard PHOTO property is large (base64), slow to transfer, markdown CRM has no photo concept | Skip PHOTO property in both directions. |
+| vCard group/distribution list sync | X-ADDRESSBOOKSERVER-GROUP is Apple-proprietary; complex semantics | Map groups to tags on pull only; don't push tag-to-group. |
+| WebDAV-Sync (RFC 6578) sync-token | More efficient than CTag+ETag but adds protocol complexity | Use CTag+ETag approach; sync-token is an optimization for large address books. At personal scale (<50K contacts), CTag+ETag is fast enough. |
+| Async/tokio for HTTP requests | PROJECT.md records reqwest blocking as a good decision | Keep blocking reqwest. Push adds a few more HTTP calls per sync, not enough to justify async complexity. |
 
 ## Feature Dependencies
 
 ```
-Schema validation ─> Edit command (validate before writing)
-Edit command ─> TUI inline editing (TUI calls edit logic)
-JSON output mode ─> MCP server (MCP tools reuse JSON serialization)
-JSON output mode ─> TUI (TUI uses same data layer)
+Contact-to-vCard generation ──> Push create (need vCard body for PUT)
+Contact-to-vCard generation ──> Push update (need vCard body for PUT)
 
-CardDAV vCard parsing ─> CardDAV pull (need to parse vCards)
-CardDAV vCard generation ─> CardDAV push (need to generate vCards)
-CardDAV pull ─> Two-way sync (pull is prerequisite)
-CardDAV push ─> Two-way sync (push is prerequisite)
-Sync metadata in frontmatter ─> Two-way sync (need ETags/timestamps)
+Push create ──> Bidirectional sync (sync = pull + push)
+Push update ──> Bidirectional sync
+Push delete ──> Bidirectional sync
 
-Contact CRUD completeness ─> MCP server (all tools need working CRUD)
-Contact CRUD completeness ─> TUI (TUI needs full read/write access)
+ETag conflict detection ──> Push update (must check before overwriting)
+ETag conflict detection ──> Push delete (must check before deleting)
 
-Safe YAML round-trip ─> Edit command (editing must not corrupt files)
-Safe YAML round-trip ─> CardDAV sync (sync writes must preserve CRM-only fields)
+Deletion tracking ──> Push delete (must know what was deleted locally)
+
+Selective sync filters ──> Auto-push (watcher should respect filters)
+Push logic ──> Auto-push (watcher triggers push)
+
+Existing pull sync ──> Bidirectional sync (already built)
+Existing ETag storage ──> Conflict detection (already built)
+Existing source_id dedup ──> Push update/delete routing (already built)
 ```
 
 ## MVP Recommendation
 
-For the next milestone (CardDAV + TUI + MCP), prioritize in this order:
+Prioritize in this order based on dependencies and risk:
 
-### Phase 1: CLI Foundation (prerequisite for everything)
+### Must Build (Core push sync)
 
-1. **JSON output mode** -- Every downstream feature (MCP, TUI, scripting) needs structured output. Add `--format json` to all commands. This is the single highest-leverage feature.
-2. **Edit command** -- Cannot build TUI editing or MCP update tools without programmatic field editing.
-3. **Safe YAML round-trip** -- Must solve before any feature that writes contact files (edit, sync, MCP updates). Consider using `yaml-rust2` for AST-preserving edits instead of serialize/deserialize.
-4. **Schema validation** -- Catch bad data before it hits disk, especially important when sync or agents write contacts.
+1. **Contact-to-vCard generation** -- Reverse of existing vcard_map. Map CRM Contact fields back to vCard 3.0 properties. calcard has a builder module for this. Test with iCloud acceptance (Apple is strict about vCard validity -- FN, N, VERSION are mandatory).
+2. **CardDavClient PUT/DELETE methods** -- Add `put_vcard()` and `delete_vcard()` to existing client. These are straightforward HTTP methods with If-Match/If-None-Match headers.
+3. **ETag conflict detection** -- Pre-push PROPFIND to fetch current server ETags, compare with local, warn on mismatch. Simple diff logic.
+4. **Deletion tracking** -- Lightweight approach: scan for contacts with `source: icloud` + `source_id` that no longer exist as files. Compare against server listing. No need for a separate tombstone file.
+5. **`acrm sync push` command** -- Wire it all together. Create/update/delete flow with --dry-run and --force.
 
-### Phase 2: MCP Server
+### Should Build (Selective filtering)
 
-5. **MCP server with read-only tools** -- search, get, list, due. Low risk since it only reads data. Immediately useful with AI agents.
-6. **MCP write tools** -- add, update, log. Higher risk but completes the integration.
+6. **Sync filter config** -- Extend sync.toml with tag/status filters. Simple config parsing.
+7. **Filter application to push and pull** -- Apply filters before sync operations. Straightforward predicate matching.
 
-### Phase 3: CardDAV Sync
+### Nice to Have (Auto-push)
 
-7. **vCard parsing/generation** -- The hard technical work; can be developed and tested independently.
-8. **CardDAV pull (one-way import)** -- Get contacts from iCloud. Lower risk than two-way sync. Immediately useful.
-9. **Two-way sync with conflict resolution** -- The full feature. Needs sync state tracking, CRM-wins merge logic.
-
-### Phase 4: TUI
-
-10. **TUI contact browser** -- Read-only table view with search/filter. Uses same data layer as CLI.
-11. **TUI detail pane and interaction logging** -- Full interactive experience.
+8. **`acrm sync watch` OR `--push` flag on commands** -- The simpler `--push` flag approach is recommended over a file watcher daemon. Less complexity, fewer dependencies, no daemon management.
 
 **Defer:**
-- Relationship graph queries: interesting but not core; add after MCP basics work
-- Bulk operations: useful but can be done with shell scripting on flat files for now
-- Contact merge/dedup: complex heuristics, defer until import volume justifies it
-- Export to vCard/CSV: nice-to-have, not blocking anything
+- **Bidirectional `acrm sync`** (pull+push in one command): Low risk but changes existing behavior. Add after push is stable.
+- **CTag quick-check optimization**: Useful but not required. Can be added later without breaking changes.
+- **WebDAV-Sync tokens**: Over-optimization for personal scale.
 
 ## Sources
 
-- Codebase analysis: `/Users/pmannion/repos/agenticcrm/src/` (direct reading of all Rust source files)
-- Project requirements: `/Users/pmannion/repos/agenticcrm/.planning/PROJECT.md`
-- Contact schema: `/Users/pmannion/repos/agenticcrm/.schemas/contact.yaml`
-- CardDAV protocol: RFC 6352 (CardDAV), RFC 6578 (WebDAV Sync), RFC 6350 (vCard 4.0) -- from training data, MEDIUM confidence
-- MCP protocol: Model Context Protocol specification (JSON-RPC 2.0 over stdio) -- from training data, MEDIUM confidence
-- ratatui patterns: immediate-mode rendering, crossterm backend -- from training data, HIGH confidence (well-established library)
-
-**Confidence notes:**
-- Web search was unavailable during this research session. Feature landscape is based on domain expertise and codebase analysis rather than competitive product analysis.
-- CardDAV details are from RFC knowledge in training data; Apple-specific endpoint behavior should be verified against current iCloud documentation.
-- MCP protocol details reflect the spec as of early 2025; verify current tool/resource schema format against latest spec before implementation.
+- [RFC 6352 - CardDAV Specification](https://www.rfc-editor.org/rfc/rfc6352) -- Authoritative standard for PUT/DELETE/If-Match semantics (HIGH confidence)
+- [Building a CardDAV Client - sabre.io](https://sabre.io/dav/building-a-carddav-client/) -- Practical implementation guide covering create/update/delete/sync algorithm (HIGH confidence)
+- [Building a CardDAV Client - CalConnect DevGuide](https://devguide.calconnect.org/CardDAV/building-a-carddav-client/) -- Community implementation guide (HIGH confidence)
+- [DAVx5 Technical Information](https://manual.davx5.com/technical_information.html) -- Real-world sync client behavior, ETag handling (MEDIUM confidence)
+- [Google CardDAV API](https://developers.google.com/people/carddav) -- Cross-reference for CardDAV PUT/DELETE patterns (MEDIUM confidence)
+- [calcard crate](https://docs.rs/calcard/latest/calcard/) -- Rust library for vCard parsing AND building; already used for pull sync (HIGH confidence)
+- [notify crate](https://github.com/notify-rs/notify) -- File system watcher for auto-push feature (HIGH confidence)
+- Existing codebase: `src/sync/carddav.rs`, `src/sync/vcard_map.rs`, `src/commands/sync.rs` -- Direct reading (HIGH confidence)
+- PROJECT.md constraints: "CRM is source of truth", "reqwest blocking", existing CLI patterns (HIGH confidence)

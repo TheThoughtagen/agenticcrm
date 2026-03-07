@@ -1,410 +1,517 @@
 # Architecture Patterns
 
-**Domain:** Plain-text personal CRM with CLI, TUI, sync, and MCP server interfaces
-**Researched:** 2026-03-05
-**Overall confidence:** MEDIUM (based on training data, ratatui and MCP patterns verified from well-known ecosystem conventions; CardDAV specifics are LOW confidence for Rust-native implementation)
+**Domain:** Two-way iCloud CardDAV sync -- push, conflict detection, selective filtering
+**Researched:** 2026-03-07
+**Confidence:** HIGH (RFC 6352 verified, existing codebase analyzed, calcard API confirmed)
 
-## Recommended Architecture
-
-The codebase must support four distinct "frontends" (CLI, TUI, CardDAV sync, MCP server) all operating on the same flat-file contact store. The correct structure is a **library core with multiple binary entry points**, not a monolith with mode flags.
+## Current Architecture (v1.0)
 
 ```
-                  +------------+   +-----------+   +----------+   +-----------+
-                  | CLI (clap) |   | TUI (rat) |   | MCP srv  |   | Sync eng  |
-                  +-----+------+   +-----+-----+   +-----+----+   +-----+-----+
-                        |               |               |               |
-                        v               v               v               v
-                  +-------------------------------------------------------------+
-                  |                     acrm-core (library crate)               |
-                  |                                                             |
-                  |  +----------+  +-----------+  +----------+  +------------+ |
-                  |  | store    |  | query     |  | mutate   |  | serialize  | |
-                  |  | (fs I/O) |  | (filter,  |  | (add,    |  | (json,     | |
-                  |  |          |  |  search,  |  |  edit,   |  |  vcard,    | |
-                  |  |          |  |  sort)    |  |  log)    |  |  md+yaml)  | |
-                  |  +----------+  +-----------+  +----------+  +------------+ |
-                  |                                                             |
-                  |  +-------------------+  +--------------------------------+ |
-                  |  | models (Contact,  |  | diff/merge (conflict           | |
-                  |  |  ContactFile,     |  |  resolution, change tracking)  | |
-                  |  |  Interaction)     |  +--------------------------------+ |
-                  |  +-------------------+                                     |
-                  +-------------------------------------------------------------+
-                                          |
-                                          v
-                              +-------------------------+
-                              | contacts/*.md (on disk) |
-                              +-------------------------+
+CLI (main.rs)
+  |
+  v
+commands/sync.rs        -- orchestrates pull sync flow
+  |
+  +-- sync/config.rs    -- credentials (keychain + TOML)
+  +-- sync/carddav.rs   -- CardDavClient: PROPFIND, GET only
+  +-- sync/vcard_map.rs -- vCard->Contact (one direction only)
+  +-- sync/dedup.rs     -- find_existing_by_source_id, should_update
+  +-- store.rs          -- file I/O, ContactFile parse/serialize/write
+  +-- frontmatter.rs    -- raw YAML manipulation preserving comments
 ```
+
+**Data flow (pull only):**
+```
+iCloud --PROPFIND--> vcard list --GET--> vcard text --vcard_map--> Contact --store--> .md file
+```
+
+## Recommended Architecture (v1.1)
+
+### New and Modified Components
+
+| Component | Status | Purpose |
+|-----------|--------|---------|
+| `sync/carddav.rs` | **MODIFY** | Add `put_vcard()` and `delete_vcard()` methods to `CardDavClient` |
+| `sync/vcard_map.rs` | **MODIFY** | Add `map_contact_to_vcard()` (reverse direction) |
+| `sync/push.rs` | **NEW** | Push sync orchestration: diff detection, push loop, result reporting |
+| `sync/filter.rs` | **NEW** | Selective sync filter logic (tag/status predicates) |
+| `commands/sync.rs` | **MODIFY** | Add `run_push()`, wire up `acrm sync push` subcommand, apply filters to pull |
+| `main.rs` | **MODIFY** | Add `Push` variant to `SyncAction` enum |
+| `sync/config.rs` | **MODIFY** | Add `auto_push` and filter config parsing from `sync.toml` |
+| `sync/mod.rs` | **MODIFY** | Export new `push` and `filter` modules |
 
 ### Component Boundaries
 
-| Component | Responsibility | Communicates With | Crate |
-|-----------|---------------|-------------------|-------|
-| **acrm-core** | All business logic, data access, query, mutation | File system (contacts/) | `lib` crate |
-| **acrm (CLI)** | Parse CLI args, call core, format terminal output | acrm-core | `bin` in workspace |
-| **acrm-tui** | Render ratatui UI, handle key events, call core | acrm-core | `bin` in workspace |
-| **acrm-mcp** | JSON-RPC stdio server, expose tools/resources | acrm-core | `bin` in workspace |
-| **acrm-sync** | CardDAV client, vCard conversion, conflict resolution | acrm-core, remote CardDAV | `bin` or library |
-| **store** | Read/write markdown files, parse frontmatter | File system | Module in core |
-| **query** | Filter, search, sort contacts | store, models | Module in core |
-| **mutate** | Add, edit, log interactions, update fields | store, models | Module in core |
-| **serialize** | Convert between Contact and JSON/vCard/markdown | models | Module in core |
-| **diff/merge** | Detect changes, resolve conflicts (CRM-wins) | models, store | Module in core |
-
-### Crate Structure (Cargo Workspace)
-
-```
-Cargo.toml              (workspace root)
-crates/
-  acrm-core/            (library: models, store, query, mutate, serialize, diff)
-    src/lib.rs
-    src/models/
-    src/store.rs
-    src/query.rs
-    src/mutate.rs
-    src/serialize.rs     (json, vcard, markdown)
-    src/diff.rs
-  acrm-cli/             (binary: clap-based CLI)
-    src/main.rs
-    src/output.rs        (human vs JSON formatting)
-  acrm-tui/             (binary: ratatui terminal UI)
-    src/main.rs
-    src/app.rs           (App state)
-    src/ui/              (render functions)
-    src/event.rs         (input handling)
-  acrm-mcp/             (binary: MCP JSON-RPC server)
-    src/main.rs
-    src/tools.rs         (tool definitions)
-    src/resources.rs     (resource definitions)
-  acrm-sync/            (binary or lib: CardDAV sync)
-    src/main.rs
-    src/carddav.rs       (HTTP/WebDAV client)
-    src/vcard.rs         (vCard <-> Contact conversion)
-    src/engine.rs        (sync logic, conflict resolution)
-```
-
-**Why a workspace instead of feature flags:** Each frontend has fundamentally different dependency trees (clap vs ratatui vs tokio/hyper). Feature flags would bloat every binary with unused dependencies. Workspace crates compile independently and share `acrm-core` as a dependency.
+| Component | Responsibility | Communicates With |
+|-----------|---------------|-------------------|
+| `CardDavClient` | HTTP transport only (PROPFIND, GET, PUT, DELETE) | iCloud server |
+| `vcard_map` | Bidirectional mapping: `Contact <-> VCard` | `calcard` crate |
+| `push` | Push orchestration: load locals, compare ETags, decide actions, call client | `carddav`, `vcard_map`, `store`, `dedup`, `filter` |
+| `filter` | Predicate functions for tag/status filtering | `models::Contact` |
+| `dedup` | Source ID matching, ETag comparison (unchanged) | `models::ContactFile` |
+| `store` | File I/O (unchanged) | filesystem |
+| `config` | Credentials + sync settings | filesystem, keychain |
 
 ## Data Flow
 
-### CLI Data Flow
+### Push Flow (new)
 
 ```
-User input -> clap parse -> command handler -> core::query/mutate -> store (fs) -> stdout
+store::load_all_contacts()
+  |
+  v
+filter::matches_push_filter(contact, config)  -- selective sync
+  |
+  v
+For each pushable contact:
+  |
+  +-- No source_id? --> NEW: generate UID, map_contact_to_vcard(), PUT (If-None-Match: *)
+  |                      --> Store returned ETag + source_id in frontmatter
+  |
+  +-- Has source_id + etag? --> PROPFIND to get server ETag
+  |     |
+  |     +-- Server ETag == local ETag? --> Local changed, server unchanged
+  |     |     --> map_contact_to_vcard(), PUT with If-Match: local_etag
+  |     |     --> Update stored ETag from response
+  |     |
+  |     +-- Server ETag != local ETag? --> CONFLICT
+  |           --> Warn user, CRM wins (per project constraint)
+  |           --> PUT with If-Match: * (force overwrite)
+  |           --> Update stored ETag from response
+  |
+  +-- Status == Archived AND source == "icloud"? --> DELETE with If-Match
+        --> Clear source_id and etag from frontmatter
 ```
 
-Straightforward, synchronous, stateless. Each invocation loads from disk, operates, writes back. This is the current architecture and works well.
-
-### TUI Data Flow
+### Pull Flow (modified)
 
 ```
-Terminal events -> event loop -> App state update -> core::query/mutate -> store (fs)
-                                     |
-                                     v
-                              ratatui render -> terminal draw
+Existing pull flow, with one addition:
+  |
+  v
+filter::matches_pull_filter(mapped_contact, config)  -- selective sync
+  |
+  +-- Passes filter? --> proceed as before (create/update/skip)
+  +-- Fails filter? --> skip this contact
 ```
 
-The TUI introduces **persistent application state**:
+### Conflict Detection Detail
 
-```rust
-// acrm-tui/src/app.rs
-pub struct App {
-    pub contacts: Vec<ContactFile>,   // loaded at startup, refreshed on mutation
-    pub selected: usize,              // cursor position in list
-    pub mode: AppMode,                // List, Detail, Search, Log
-    pub search_query: String,         // active search filter
-    pub filtered: Vec<usize>,         // indices into contacts matching search
-    pub should_quit: bool,
-}
+The conflict detection model uses ETags per RFC 6352:
 
-pub enum AppMode {
-    List,
-    Detail,
-    Search,
-    LogInteraction,
-    Help,
-}
-```
+1. **No conflict (common case):** Local ETag matches server ETag. Local has been modified since last sync. PUT with `If-Match: "local_etag"` succeeds with 200/204. Store new ETag from response.
 
-**Key pattern:** The TUI loads all contacts into memory at startup and re-reads from disk after any mutation. For a personal CRM (hundreds, not millions of contacts), full reload is simpler and more correct than incremental cache invalidation.
+2. **Conflict detected:** Local ETag does not match server ETag (both sides changed). Per project constraint "CRM wins on all sync conflicts": warn the user, then PUT with `If-Match: *` to force overwrite. Store new ETag.
 
-### MCP Server Data Flow
+3. **Stale local (no local changes):** Detected by comparing ETag values. If the local ETag matches the server ETag, the contact is unchanged on both sides -- skip it. If the server ETag differs but the local contact has not been modified since last pull, next pull will update it. For MVP, always push if ETag differs and let CRM-wins rule apply.
 
-```
-AI agent -> JSON-RPC (stdin/stdout) -> tool dispatch -> core::query/mutate -> store (fs)
-                                                                |
-                                                                v
-                                                        JSON response -> stdout
-```
-
-The MCP server is **stateless per-request** like the CLI, but communicates via JSON-RPC over stdio instead of CLI args. Each tool call maps to a core function.
-
-MCP tools to expose:
-
-| Tool | Maps To | Description |
-|------|---------|-------------|
-| `list_contacts` | `core::query::list` | List/filter contacts |
-| `search_contacts` | `core::query::search` | Full-text search |
-| `get_contact` | `core::query::get` | Get single contact details |
-| `add_contact` | `core::mutate::add` | Create new contact |
-| `log_interaction` | `core::mutate::log` | Log an interaction |
-| `update_contact` | `core::mutate::update` | Edit contact fields |
-| `due_followups` | `core::query::due` | Contacts needing follow-up |
-
-MCP resources to expose:
-
-| Resource | URI Pattern | Description |
-|----------|-------------|-------------|
-| Contact list | `contacts://list` | All contacts summary |
-| Single contact | `contacts://{slug}` | Full contact detail |
-| Schema | `schema://contact` | Contact field definitions |
-
-### CardDAV Sync Data Flow
-
-```
-                    +------------------+
-                    | Remote CardDAV   |
-                    | (iCloud/etc)     |
-                    +--------+---------+
-                             |
-                    PROPFIND/GET/PUT/DELETE (HTTP)
-                             |
-                    +--------v---------+
-                    | carddav client   |
-                    | (HTTP + WebDAV)  |
-                    +--------+---------+
-                             |
-                    +--------v---------+
-                    | vcard convert    |  vCard <-> Contact model
-                    +--------+---------+
-                             |
-                    +--------v---------+
-                    | sync engine      |  compare, diff, resolve
-                    +--------+---------+
-                             |
-                    +--------v---------+
-                    | core::mutate     |  write changes
-                    +--------+---------+
-                             |
-                    +--------v---------+
-                    | contacts/*.md    |
-                    +-------------------+
-```
-
-Sync state tracking requires a local metadata file:
-
-```yaml
-# .sync/carddav-state.yaml
-server: https://contacts.icloud.com
-last_sync: 2026-03-05T10:30:00Z
-etags:
-  john-doe: "etag-abc123"
-  jane-smith: "etag-def456"
-sync_token: "sync-token-xyz"  # for WebDAV sync-collection
-```
-
-**Conflict resolution is simple by design:** CRM always wins. On conflict, the local version overwrites the remote. This avoids the entire class of merge problems.
+4. **Server returns 412 Precondition Failed:** ETag changed between PROPFIND check and PUT. Retry once with fresh ETag check, then force-overwrite if still conflicting.
 
 ## Patterns to Follow
 
-### Pattern 1: Core Returns Data, Frontends Format
+### Pattern 1: CardDAV PUT with ETag (RFC 6352 Section 6.3.2)
 
-**What:** Core functions return structured data (`Vec<ContactFile>`, `Contact`, etc.), never print to stdout or format output. Each frontend formats appropriately (colored text for CLI, widgets for TUI, JSON for MCP).
-
-**When:** Every core function.
-
-**Example:**
+**What:** Create or update a contact on the server using HTTP PUT with conditional headers.
+**When:** Pushing a contact to iCloud.
 
 ```rust
-// acrm-core/src/query.rs -- returns data, no formatting
-pub fn search(root: &Path, query: &str) -> Result<Vec<ContactFile>> {
-    let contacts = store::load_all_contacts(root)?;
-    let query_lower = query.to_lowercase();
-    Ok(contacts.into_iter().filter(|cf| matches_query(cf, &query_lower)).collect())
-}
+// In CardDavClient -- new method
+pub fn put_vcard(
+    &self,
+    vcard_url: &Url,
+    vcard_body: &str,
+    etag: Option<&str>,  // None = new contact, Some = update
+) -> Result<PutResult> {
+    let method = Method::PUT;
+    let mut request = self.client
+        .request(method, vcard_url.as_str())
+        .header("Content-Type", "text/vcard; charset=utf-8")
+        .basic_auth(&self.apple_id, Some(&self.app_password))
+        .body(vcard_body.to_string());
 
-// acrm-cli/src/output.rs -- CLI formats for terminal
-pub fn print_contacts(contacts: &[ContactFile], format: OutputFormat) {
-    match format {
-        OutputFormat::Human => { /* colored, tabular */ }
-        OutputFormat::Json => { /* serde_json::to_string */ }
+    match etag {
+        Some(etag) => {
+            // Update existing -- server rejects if ETag changed
+            request = request.header("If-Match", format!("\"{}\"", etag));
+        }
+        None => {
+            // Create new -- server rejects if resource already exists
+            request = request.header("If-None-Match", "*");
+        }
+    }
+
+    let response = request.send()?;
+    match response.status().as_u16() {
+        200 | 201 | 204 => {
+            let new_etag = response.headers()
+                .get("ETag")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.trim_matches('"').to_string());
+            Ok(PutResult { new_etag, conflict: false })
+        }
+        412 => Ok(PutResult { new_etag: None, conflict: true }),
+        status => bail!("PUT failed with status {}", status),
     }
 }
+```
 
-// acrm-mcp/src/tools.rs -- MCP returns JSON
-pub fn handle_search(params: Value) -> Result<Value> {
-    let results = core::query::search(&root, &query)?;
-    Ok(serde_json::to_value(results)?)
+**Key iCloud behavior:** iCloud may not return an ETag in the PUT response. If absent, immediately do a HEAD or PROPFIND on the single resource URL to retrieve the new ETag.
+
+### Pattern 2: Contact-to-VCard Serialization via calcard
+
+**What:** Build a vCard 3.0 string from a `Contact` struct using calcard's builder API.
+**When:** Before every PUT to iCloud.
+
+calcard's `VCard` struct has a public `entries: Vec<VCardEntry>` field. `VCardEntry::new(prop).with_value(val)` provides a fluent builder. Serialization is via `vcard.to_string()` (Display impl).
+
+```rust
+// In vcard_map.rs -- new function
+pub fn map_contact_to_vcard(contact: &Contact, uid: &str, notes: &str) -> String {
+    let mut vcard = VCard::default();
+
+    // FN (formatted name)
+    vcard.entries.push(
+        VCardEntry::new(VCardProperty::Fn)
+            .with_value(VCardValue::Text(contact.name.clone()))
+    );
+
+    // N (structured name: Family;Given;;;)
+    let (given, family) = split_name(&contact.name);
+    vcard.entries.push(
+        VCardEntry::new(VCardProperty::N)
+            .with_values(vec![
+                VCardValue::Text(family),
+                VCardValue::Text(given),
+                VCardValue::Text(String::new()),
+                VCardValue::Text(String::new()),
+                VCardValue::Text(String::new()),
+            ])
+    );
+
+    // UID
+    vcard.entries.push(
+        VCardEntry::new(VCardProperty::Uid)
+            .with_value(VCardValue::Text(uid.to_string()))
+    );
+
+    // EMAIL (one entry per address)
+    for email in &contact.email {
+        vcard.entries.push(
+            VCardEntry::new(VCardProperty::Email)
+                .with_value(VCardValue::Text(email.clone()))
+        );
+    }
+
+    // TEL (one entry per number)
+    for phone in &contact.phone {
+        vcard.entries.push(
+            VCardEntry::new(VCardProperty::Tel)
+                .with_value(VCardValue::Text(phone.clone()))
+        );
+    }
+
+    // ORG
+    if !contact.company.is_empty() {
+        vcard.entries.push(
+            VCardEntry::new(VCardProperty::Org)
+                .with_value(VCardValue::Text(contact.company.clone()))
+        );
+    }
+
+    // TITLE
+    if !contact.role.is_empty() {
+        vcard.entries.push(
+            VCardEntry::new(VCardProperty::Title)
+                .with_value(VCardValue::Text(contact.role.clone()))
+        );
+    }
+
+    // URL
+    if !contact.website.is_empty() {
+        vcard.entries.push(
+            VCardEntry::new(VCardProperty::Url)
+                .with_value(VCardValue::Text(contact.website.clone()))
+        );
+    }
+
+    // BDAY
+    if let Some(bday) = contact.birthday {
+        vcard.entries.push(
+            VCardEntry::new(VCardProperty::Bday)
+                .with_value(VCardValue::Text(bday.format("%Y-%m-%d").to_string()))
+        );
+    }
+
+    // NOTE (from markdown body, not frontmatter)
+    if !notes.is_empty() {
+        vcard.entries.push(
+            VCardEntry::new(VCardProperty::Note)
+                .with_value(VCardValue::Text(notes.to_string()))
+        );
+    }
+
+    vcard.to_string()
+}
+
+/// Split "First Last" into (given, family). Handles multi-word names.
+fn split_name(name: &str) -> (String, String) {
+    let parts: Vec<&str> = name.splitn(2, ' ').collect();
+    match parts.len() {
+        0 => (String::new(), String::new()),
+        1 => (parts[0].to_string(), String::new()),
+        _ => (parts[0].to_string(), parts[1].to_string()),
+    }
 }
 ```
 
-**Why this matters now:** The current codebase mixes business logic with `println!` and `colored` formatting inside command handlers. This must be separated before adding TUI or MCP.
+**Field mapping table:**
 
-### Pattern 2: Ratatui Immediate-Mode Rendering
+| Contact Field | vCard Property | Notes |
+|---------------|---------------|-------|
+| `name` | `FN` | Direct mapping |
+| `name` (split) | `N` | Family;Given;;; structured format |
+| `email[]` | `EMAIL` | One entry per address |
+| `phone[]` | `TEL` | One entry per number |
+| `company` | `ORG` | Single value |
+| `role` | `TITLE` | vCard uses TITLE not ROLE |
+| `website` | `URL` | Single value |
+| `birthday` | `BDAY` | YYYY-MM-DD format |
+| body notes | `NOTE` | Extract from ## Notes section |
+| `source_id` / uid | `UID` | Must match URL filename |
+| -- | -- | tags, status, priority, follow_up_cadence are CRM-only, NOT serialized |
 
-**What:** The TUI uses ratatui's immediate-mode pattern: the entire screen is re-rendered every frame based on application state. No retained widget tree.
+### Pattern 3: Selective Sync Filters
 
-**When:** All TUI rendering.
-
-**Example:**
+**What:** Predicate functions that determine whether a contact should be included in push/pull.
+**When:** Before processing each contact in the sync loop.
 
 ```rust
-// acrm-tui/src/ui/mod.rs
-pub fn draw(frame: &mut Frame, app: &App) {
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
-        .split(frame.area());
+// In sync/filter.rs -- new module
+pub struct SyncFilter {
+    pub tags: Vec<String>,         // include contacts with ANY of these tags
+    pub exclude_tags: Vec<String>, // exclude contacts with ANY of these tags
+    pub statuses: Vec<Status>,     // include contacts with ANY of these statuses
+}
 
-    draw_contact_list(frame, app, chunks[0]);
-    draw_contact_detail(frame, app, chunks[1]);
+impl SyncFilter {
+    pub fn matches(&self, contact: &Contact) -> bool {
+        // If no filters set, match everything
+        if self.tags.is_empty() && self.statuses.is_empty() && self.exclude_tags.is_empty() {
+            return true;
+        }
+        // Check exclude tags first (exclusion wins)
+        if self.exclude_tags.iter().any(|t| contact.tags.contains(t)) {
+            return false;
+        }
+        // Check include tags (empty = no tag constraint)
+        let tag_match = self.tags.is_empty()
+            || self.tags.iter().any(|t| contact.tags.contains(t));
+        // Check statuses (empty = no status constraint)
+        let status_match = self.statuses.is_empty()
+            || contact.status.as_ref().map_or(false, |s| {
+                self.statuses.iter().any(|fs| std::mem::discriminant(s) == std::mem::discriminant(fs))
+            });
+
+        tag_match && status_match
+    }
+
+    pub fn empty() -> Self {
+        Self { tags: vec![], exclude_tags: vec![], statuses: vec![] }
+    }
 }
 ```
 
-### Pattern 3: Sync as Explicit Command, Not Background Process
+Config format in `~/.config/acrm/sync.toml`:
+```toml
+apple_id = "user@icloud.com"
+auto_push = false
 
-**What:** Sync runs when the user invokes `acrm sync` (or a TUI keybinding), not as a daemon or watcher. This keeps the architecture simple and predictable.
+[push_filter]
+tags = ["professional", "family"]
+exclude_tags = ["private"]
 
-**When:** CardDAV sync operations.
+[pull_filter]
+# empty = pull everything (default)
+```
 
-**Why:** A personal CRM syncing on-demand avoids file-watching complexity, lock contention with git, and surprising mutations. The user decides when to sync.
+### Pattern 4: CardDAV DELETE
 
-### Pattern 4: serde Multi-Format Serialization
-
-**What:** The `Contact` model derives `Serialize`/`Deserialize` and the `serialize` module provides format-specific functions (YAML frontmatter, JSON, vCard).
-
-**When:** Any data conversion boundary.
-
-**Example:**
+**What:** Remove a contact from the server.
+**When:** Contact archived/deleted locally with `source == "icloud"`.
 
 ```rust
-// acrm-core/src/serialize.rs
-pub fn to_json(contact: &Contact) -> Result<String> {
-    Ok(serde_json::to_string_pretty(contact)?)
-}
+// In CardDavClient -- new method
+pub fn delete_vcard(&self, vcard_url: &Url, etag: &str) -> Result<bool> {
+    let response = self.client
+        .request(Method::DELETE, vcard_url.as_str())
+        .header("If-Match", format!("\"{}\"", etag))
+        .basic_auth(&self.apple_id, Some(&self.app_password))
+        .send()?;
 
-pub fn to_vcard(contact: &Contact) -> Result<String> {
-    // Manual construction since vCard has specific field mappings
-    let mut vcard = String::from("BEGIN:VCARD\nVERSION:3.0\n");
-    vcard.push_str(&format!("FN:{}\n", contact.name));
-    // ... map fields to vCard properties
-    vcard.push_str("END:VCARD\n");
-    Ok(vcard)
-}
-
-pub fn from_vcard(vcard: &str) -> Result<Contact> {
-    // Parse vCard properties into Contact fields
+    match response.status().as_u16() {
+        200 | 204 => Ok(true),
+        404 => Ok(true),  // Already gone, not an error
+        412 => bail!("Conflict: server version changed since last sync. Re-sync first."),
+        status => bail!("DELETE failed with status {}", status),
+    }
 }
 ```
 
 ## Anti-Patterns to Avoid
 
-### Anti-Pattern 1: Feature Flags for Frontend Selection
+### Anti-Pattern 1: Full Re-download on Every Push
 
-**What:** Using `#[cfg(feature = "tui")]` to conditionally compile frontends in a single binary.
+**What:** Fetching all vCards from iCloud before pushing to compare content.
+**Why bad:** Wastes bandwidth and time. With 700+ contacts, this adds 10+ seconds per sync.
+**Instead:** Use ETags for change detection. PROPFIND the list (lightweight, returns hrefs + etags only) to get current server state, then compare locally. Only fetch full vCards when needed.
 
-**Why bad:** Produces bloated binaries, makes dependency management messy, and creates confusing build matrices. A user who wants the CLI should not need ratatui in their dependency tree.
+### Anti-Pattern 2: Storing Sync State Outside Contact Files
 
-**Instead:** Cargo workspace with separate binary crates sharing a core library.
+**What:** Creating a separate sync ledger/database (e.g., `.sync/carddav-state.yaml`) to track push state.
+**Why bad:** Violates the flat-file architecture. Adds another state to keep in sync. Git history already tracks changes. The v1.0 architecture already stores `source`, `source_id`, and `etag` in frontmatter -- this is the right approach.
+**Instead:** The contact's `etag` and `source_id` fields in frontmatter ARE the sync state. After a successful push, update these fields in place. A contact with empty `source_id` has never been pushed. A contact with `source: "icloud"` and a `source_id` is tracked.
 
-### Anti-Pattern 2: Global Mutable State in TUI
+### Anti-Pattern 3: Async HTTP for Push
 
-**What:** Using `lazy_static` or `static mut` for application state in the TUI.
+**What:** Switching to tokio/async reqwest for parallel pushes.
+**Why bad:** Adds significant complexity (tokio runtime, async infection). The existing codebase uses `reqwest::blocking` consistently. Parallel requests to iCloud may also trigger rate limiting.
+**Instead:** Push contacts sequentially. For typical pushes (0-5 changed contacts), this takes seconds. For a full initial push of 700 contacts, ~2-3 minutes is acceptable for a CLI tool run once.
 
-**Why bad:** Makes testing impossible, causes subtle bugs with state ordering, prevents future async operations.
+### Anti-Pattern 4: Two-Way Field-Level Merge on Conflict
 
-**Instead:** Pass `&mut App` through the event loop. All state lives in one struct.
+**What:** Attempting to merge individual fields when both local and server have changes.
+**Why bad:** Enormous complexity. Which fields win? What about deleted fields? Merge semantics for arrays (emails, phones) are ambiguous. The project constraint explicitly says "CRM wins."
+**Instead:** On conflict, warn the user and overwrite the entire server vCard. Log which contacts had conflicts in the push result output.
 
-### Anti-Pattern 3: In-Memory Database / Index
+## Integration Points
 
-**What:** Building an in-memory index (e.g., SQLite, tantivy) to avoid re-reading files.
+### 1. CardDavClient (sync/carddav.rs) -- 2 new methods
 
-**Why bad:** For a personal CRM with likely <1000 contacts, the complexity of cache invalidation vastly outweighs the performance gain. Reading all files takes <50ms. An index must be kept in sync with the filesystem, which creates a second source of truth.
+Add `put_vcard()` and `delete_vcard()` to the existing `CardDavClient` struct. These follow the same pattern as existing methods (basic auth, error handling, status code matching) but use PUT and DELETE methods.
 
-**Instead:** Read from disk on every operation. Profile if it becomes slow (it will not for personal-scale data).
-
-### Anti-Pattern 4: Native CardDAV Protocol Implementation
-
-**What:** Writing a full WebDAV/CardDAV protocol client from scratch in Rust.
-
-**Why bad:** CardDAV (RFC 6352) sits on top of WebDAV (RFC 4918) which sits on HTTP with XML PROPFIND/PROPPATCH/REPORT methods. Implementing this correctly, including authentication (especially iCloud's token-based auth), TLS, redirects, and error handling is a substantial undertaking.
-
-**Instead:** Use the `reqwest` crate for HTTP and build a thin CardDAV client that handles only the specific operations needed: PROPFIND for discovery, GET for vCard retrieval, PUT for updates, and sync-collection REPORT for change detection. Alternatively, shell out to `vdirsyncer` for the sync transport and focus only on vCard-to-Contact conversion. Evaluate Rust CardDAV crates (if any exist and are maintained) before building from scratch.
-
-## Key Refactoring: Extracting acrm-core
-
-The existing codebase must be refactored before new features can be added cleanly. This is the single most important architectural task.
-
-### Current State
-
-```
-src/
-  main.rs          (clap CLI, directly calls command handlers)
-  store.rs         (file I/O, parsing)
-  models/          (Contact, ContactFile)
-  commands/        (add, list, search, show, log, due -- mix logic with formatting)
+New struct needed:
+```rust
+pub struct PutResult {
+    pub new_etag: Option<String>,
+    pub conflict: bool,
+}
 ```
 
-### Target State
+### 2. VCard Serialization (sync/vcard_map.rs) -- 1 new public function + 1 helper
+
+Add `map_contact_to_vcard(contact: &Contact, uid: &str, notes: &str) -> String` as the reverse of `map_vcard_to_contact()`. Pure function, no side effects, fully unit-testable with round-trip tests (parse -> map to contact -> map back to vcard -> parse again -> compare).
+
+Add `split_name(name: &str) -> (String, String)` helper for structured name decomposition.
+
+### 3. Push Orchestration (sync/push.rs) -- new module
+
+The largest new component. Orchestrates:
+
+1. Load all local contacts via `store::load_all_contacts()`
+2. Apply push filter via `filter::SyncFilter::matches()`
+3. Discover address book (reuses `CardDavClient::discover_address_book()`)
+4. PROPFIND to get current server ETag list (reuses `CardDavClient::fetch_vcard_list()`)
+5. Build server ETag index: `HashMap<String, String>` mapping source_id -> server_etag
+6. For each filtered local contact, determine action:
+   - **New (no source_id):** Generate UUID as UID, build vCard URL as `{addressbook_url}/{uid}.vcf`, PUT, store source_id + ETag
+   - **Update (source_id exists, ETag matches server):** PUT with If-Match
+   - **Conflict (source_id exists, ETag differs):** Warn, PUT with If-Match: * (CRM wins)
+   - **Delete (archived + has source_id):** DELETE, clear sync fields
+   - **Unchanged (source_id exists, no local changes detected):** Skip
+7. Update contact frontmatter on disk after each successful push
+8. Return `PushResult` struct with counts and details
+
+### 4. Filter Module (sync/filter.rs) -- new module
+
+Pure predicate logic. Constructed from config. Applied in both push and pull paths. No dependencies beyond `models::Contact`.
+
+### 5. Config Extension (sync/config.rs) -- modify
+
+Add parsing for new TOML fields: `auto_push` (bool), `push_filter` (table), `pull_filter` (table). Backward-compatible: missing fields default to `false` / empty filters.
+
+### 6. CLI Wiring (main.rs + commands/sync.rs)
+
+```rust
+#[derive(Subcommand)]
+enum SyncAction {
+    /// Set up iCloud credentials
+    Setup,
+    /// Push local changes to iCloud
+    Push {
+        /// Show what would change without writing
+        #[arg(long)]
+        dry_run: bool,
+        /// Force push all contacts (ignore conflicts)
+        #[arg(long)]
+        force: bool,
+    },
+}
+```
+
+The existing `acrm sync` (no subcommand) remains pull-only for backward compatibility. `acrm sync push` is the new push command. Filters apply to both directions automatically.
+
+### 7. Frontmatter Updates After Push
+
+After a successful PUT, update the contact file's frontmatter:
+- `source` -> `"icloud"` (if was empty)
+- `source_id` -> the UID used in the vCard URL
+- `etag` -> the new ETag from the server response
+
+Use existing `frontmatter::update_field()` + direct file write, matching the pattern already used in `update_existing_contact()` in `commands/sync.rs`.
+
+## URL Construction for New Contacts
+
+For new contacts (no existing server resource), construct the PUT URL:
 
 ```
-crates/
-  acrm-core/src/
-    lib.rs
-    models/        (moved from src/models/)
-    store.rs       (moved from src/store.rs)
-    query.rs       (extracted from commands/list, search, show, due)
-    mutate.rs      (extracted from commands/add, log)
-    serialize.rs   (new: json output, vcard later)
-  acrm-cli/src/
-    main.rs        (clap CLI, calls core, formats output)
-    output.rs      (human + json formatting)
+{addressbook_url}/{uid}.vcf
 ```
 
-**Migration strategy:** This can be done in one commit. Move files, update `use` paths, split formatting from logic. No behavior changes, just structural. All existing tests (if any) continue to pass.
-
-## Scalability Considerations
-
-| Concern | At 100 contacts | At 1,000 contacts | At 10,000 contacts |
-|---------|-----------------|--------------------|--------------------|
-| File load time | <10ms | <100ms | ~500ms, may need lazy loading |
-| Search | Brute force fine | Brute force fine | Consider simple index file |
-| TUI responsiveness | No concern | No concern | Paginate, load on demand |
-| Sync time | Seconds | ~1 minute | Incremental sync essential |
-| Git repo size | Trivial | ~5MB | ~50MB, consider shallow clone |
-
-For a personal CRM, 10,000 contacts is an extreme upper bound. The architecture should be optimized for simplicity at 100-1,000 scale, with escape hatches noted but not built.
+Where `uid` is a newly generated UUID (via `uuid::Uuid::new_v4()`). iCloud accepts UUID-format filenames for new vCard resources. The UID property inside the vCard body must match this filename (without the `.vcf` extension).
 
 ## Suggested Build Order
 
-The dependency graph dictates the build order:
+Build order follows dependency chain. Each step can be tested independently before proceeding:
 
 ```
-Phase 1: Extract acrm-core (workspace, library extraction)
+Step 1: vcard_map (reverse mapping)     -- no network deps, pure functions
     |
-    +-- Phase 2a: JSON output mode (serialize module, CLI --format flag)
-    |       |
-    |       +-- Phase 3: MCP server (depends on JSON serialization)
+Step 2: carddav (PUT/DELETE methods)    -- no new struct deps
     |
-    +-- Phase 2b: TUI (depends on core library, independent of JSON)
+Step 3: filter (predicate module)       -- no deps beyond models
     |
-    +-- Phase 2c: Contact editing (mutate module, needed before sync)
-            |
-            +-- Phase 4: CardDAV sync (depends on edit, serialize/vcard)
+Step 4: config (extended TOML parsing)  -- depends on filter types
+    |
+Step 5: push (orchestration)            -- depends on steps 1-4
+    |
+Step 6: CLI wiring                      -- depends on step 5
+    |
+Step 7: auto-push on save (optional)    -- depends on step 6
 ```
 
 **Rationale:**
-1. **Core extraction first** -- every other feature depends on the library/binary split
-2. **JSON output and MCP together** -- MCP needs JSON serialization; building JSON output for CLI simultaneously is minimal extra work and validates the serialization
-3. **TUI can parallelize** -- independent of JSON/MCP work, only needs core
-4. **Editing before sync** -- sync needs to write changes to contacts; editing capability must exist first
-5. **CardDAV last** -- highest complexity, most unknowns, needs editing + vCard serialization in place
+- Steps 1-3 are independent and could be built in parallel
+- Step 4 depends on filter types being defined
+- Step 5 is the integration point that wires everything together
+- Step 6 is thin CLI plumbing
+- Step 7 is a refinement that hooks into existing edit/log commands
+
+## Scalability Considerations
+
+| Concern | Current (~700 contacts) | At 5K contacts | At 50K contacts |
+|---------|------------------------|-----------------|------------------|
+| PROPFIND list | <1s | 2-3s | 10-15s |
+| Sequential PUTs (all) | ~2min | ~15min | Impractical |
+| Typical push (changed only) | <5s | <5s | <5s |
+| Mitigation | Push only changed | Push only changed | Need change tracking log |
+
+For the current scale, sequential push of changed-only contacts is the right approach. Most syncs will push 0-5 contacts.
 
 ## Sources
 
-- Ratatui documentation and examples (ratatui.rs) -- architecture patterns, immediate-mode rendering, App state pattern: MEDIUM confidence (from training data, well-established patterns)
-- MCP specification (modelcontextprotocol.io) -- tool/resource definitions, JSON-RPC over stdio: MEDIUM confidence (from training data, protocol is standardized)
-- CardDAV RFC 6352, WebDAV RFC 4918 -- sync protocol: MEDIUM confidence (RFC standards are stable)
-- Rust Cargo workspace documentation -- crate organization: HIGH confidence (stable Rust feature)
-- Existing acrm codebase analysis -- current architecture assessment: HIGH confidence (directly inspected)
+- [RFC 6352 - CardDAV](https://datatracker.ietf.org/doc/html/rfc6352) -- ETag conflict detection (If-Match), PUT/DELETE semantics, Section 6.3.2 (HIGH confidence)
+- [calcard docs - VCard struct](https://docs.rs/calcard/latest/calcard/vcard/struct.VCard.html) -- `entries: Vec<VCardEntry>`, `Default` impl, `.to_string()` serialization (HIGH confidence)
+- [calcard docs - VCardEntry](https://docs.rs/calcard/latest/calcard/vcard/struct.VCardEntry.html) -- `new(prop).with_value(val)` builder API, `with_values()`, `with_param()` (HIGH confidence)
+- [calcard docs - VCardValue](https://docs.rs/calcard/latest/calcard/vcard/enum.VCardValue.html) -- `Text(String)`, `Component(Vec<String>)`, `From<String>` impl (HIGH confidence)
+- [calcard GitHub](https://github.com/stalwartlabs/calcard) -- `.to_string()` produces valid vCard text (HIGH confidence)
+- Existing codebase analysis: `src/sync/carddav.rs`, `src/sync/vcard_map.rs`, `src/store.rs`, `src/models/contact.rs`, `src/commands/sync.rs`, `src/sync/dedup.rs` (HIGH confidence)
