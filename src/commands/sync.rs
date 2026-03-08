@@ -260,7 +260,10 @@ pub fn run_sync(force: bool, dry_run: bool, fmt: &OutputFormat) -> Result<()> {
         // Check for existing contact by source_id
         if let Some(existing) = dedup::find_existing_by_source_id(&existing_contacts, &uid) {
             if !force && !dedup::should_update(existing, &entry.etag) {
-                // Unchanged
+                // Unchanged — but ensure snapshot exists for push comparison
+                if !dry_run {
+                    let _ = vcard_write::cache_contact_snapshot(&crm_root, &uid, &mapped.contact);
+                }
                 unchanged_count += 1;
                 synced.push(SyncedContact {
                     name: contact_name,
