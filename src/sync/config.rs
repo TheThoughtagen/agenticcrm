@@ -1,11 +1,27 @@
 use std::fs;
 use std::path::PathBuf;
 
+use serde::Deserialize;
+
 const SERVICE_NAME: &str = "acrm-icloud";
 
-/// Sync configuration loaded from the config file.
+/// Sync configuration loaded from the config file (sync.toml).
+#[derive(Debug, Deserialize)]
 pub struct SyncConfig {
     pub apple_id: String,
+    #[serde(default)]
+    pub push_filters: FilterConfig,
+    #[serde(default)]
+    pub pull_filters: FilterConfig,
+}
+
+/// Filter configuration for push or pull direction.
+#[derive(Debug, Deserialize, Default, Clone)]
+pub struct FilterConfig {
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub statuses: Vec<String>,
 }
 
 /// Returns the acrm config directory (~/.config/acrm/), creating it if needed.
@@ -57,6 +73,20 @@ pub fn load_credentials() -> anyhow::Result<(String, String)> {
     Ok((apple_id, app_password))
 }
 
+/// Load full sync configuration from sync.toml, including filter sections.
+/// Returns a SyncConfig with push_filters and pull_filters (defaulting to empty).
+pub fn load_sync_config() -> anyhow::Result<SyncConfig> {
+    let config_path = config_dir().join("sync.toml");
+
+    if !config_path.exists() {
+        anyhow::bail!("No sync configuration found. Run `acrm sync setup` first.");
+    }
+
+    let content = fs::read_to_string(&config_path)?;
+    let config: SyncConfig = toml::from_str(&content)?;
+    Ok(config)
+}
+
 /// Parse apple_id from a minimal TOML config (just `apple_id = "..."` line).
 fn parse_apple_id(content: &str) -> Option<String> {
     for line in content.lines() {
@@ -104,5 +134,49 @@ mod tests {
     fn test_config_dir() {
         let dir = config_dir();
         assert!(dir.ends_with("acrm"));
+    }
+
+    #[test]
+    fn test_sync_config_deserialize_with_filters() {
+        let toml_str = r#"
+apple_id = "user@icloud.com"
+
+[push_filters]
+tags = ["work", "vip"]
+statuses = ["active"]
+
+[pull_filters]
+tags = ["personal"]
+statuses = ["active", "dormant"]
+"#;
+        let config: SyncConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.apple_id, "user@icloud.com");
+        assert_eq!(config.push_filters.tags, vec!["work", "vip"]);
+        assert_eq!(config.push_filters.statuses, vec!["active"]);
+        assert_eq!(config.pull_filters.tags, vec!["personal"]);
+        assert_eq!(
+            config.pull_filters.statuses,
+            vec!["active", "dormant"]
+        );
+    }
+
+    #[test]
+    fn test_sync_config_deserialize_legacy_no_filters() {
+        let toml_str = "apple_id = \"user@icloud.com\"\n";
+        let config: SyncConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.apple_id, "user@icloud.com");
+        assert!(config.push_filters.tags.is_empty());
+        assert!(config.push_filters.statuses.is_empty());
+        assert!(config.pull_filters.tags.is_empty());
+        assert!(config.pull_filters.statuses.is_empty());
+    }
+
+    #[test]
+    fn test_store_credentials_writes_parseable_toml() {
+        // Verify the format string used in store_credentials is valid TOML
+        let apple_id = "test@example.com";
+        let content = format!("apple_id = \"{}\"\n", apple_id);
+        let config: SyncConfig = toml::from_str(&content).unwrap();
+        assert_eq!(config.apple_id, apple_id);
     }
 }
