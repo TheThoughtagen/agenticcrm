@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Two-Way iCloud Sync
-status: unknown
-last_updated: "2026-03-08T16:59:37.221Z"
+status: executing
+last_updated: "2026-03-08T18:21:40Z"
 progress:
   total_phases: 2
   completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 5
+  completed_plans: 5
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-07)
 
 **Core value:** Your contacts and relationship history are always accessible, portable, and under your control
-**Current focus:** Phase 5 - Push Command (COMPLETE)
+**Current focus:** Phase 5 - Push Command (gap closure complete)
 
 ## Current Position
 
 Phase: 5 of 6 (Push Command) -- second phase of v1.1
-Plan: 1 of 1 in current phase (Plan 01 complete -- PHASE COMPLETE)
+Plan: 2 of 2 in current phase (Plan 02 complete -- gap closure done)
 Status: Executing
-Last activity: 2026-03-08 -- completed 05-01 push command implementation
+Last activity: 2026-03-08 -- completed 05-02 gap closure (false-positive changeset fix)
 
-Progress: [█████░░░░░] 57% (4/7 v1.1 plans)
+Progress: [██████░░░░] 63% (5/7 v1.1 plans)
 
 ## Performance Metrics
 
@@ -53,7 +53,8 @@ Recent decisions affecting current work:
 - v1.1: 200ms sleep before PUT/DELETE as iCloud rate-limit defense
 - v1.1: DELETE returns Ok on 404 for idempotent semantics
 - v1.1: Use VCardValue::Text (not Component) for N property to get semicolon separators
-- v1.1: Merge path (merge_contact_to_vcard) is canonical form for cache comparison
+- v1.1: Merge path (merge_contact_to_vcard) does in-place replacement preserving params and NOTE
+- v1.1: ContactSnapshot JSON caching for semantic push changeset detection (replaces string comparison)
 - v1.1: Changeset compute-then-execute pattern enables dry-run and preview
 - v1.1: CLI flags on both parent and subcommand level, merged via OR for flexible usage
 - v1.1: PROPFIND fallback when PUT returns empty ETag
@@ -71,5 +72,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 05-01-PLAN.md (push command) -- Phase 5 complete
+Stopped at: Completed 05-02-PLAN.md (gap closure: false-positive changeset fix)
 Resume file: None
