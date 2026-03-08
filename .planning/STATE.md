@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Two-Way iCloud Sync
 status: executing
-last_updated: "2026-03-07"
+last_updated: "2026-03-08"
 progress:
   total_phases: 3
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 7
-  completed_plans: 3
+  completed_plans: 4
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-07)
 
 **Core value:** Your contacts and relationship history are always accessible, portable, and under your control
-**Current focus:** Phase 4 - Push Infrastructure
+**Current focus:** Phase 5 - Push Command (COMPLETE)
 
 ## Current Position
 
-Phase: 4 of 6 (Push Infrastructure) -- first phase of v1.1
-Plan: 3 of 3 in current phase (Plans 01, 02, 03 complete -- PHASE COMPLETE)
+Phase: 5 of 6 (Push Command) -- second phase of v1.1
+Plan: 1 of 1 in current phase (Plan 01 complete -- PHASE COMPLETE)
 Status: Executing
-Last activity: 2026-03-07 -- completed 04-03 push orchestration
+Last activity: 2026-03-08 -- completed 05-01 push command implementation
 
-Progress: [████░░░░░░] 42% (3/7 v1.1 plans)
+Progress: [█████░░░░░] 57% (4/7 v1.1 plans)
 
 ## Performance Metrics
 
@@ -55,6 +55,9 @@ Recent decisions affecting current work:
 - v1.1: Use VCardValue::Text (not Component) for N property to get semicolon separators
 - v1.1: Merge path (merge_contact_to_vcard) is canonical form for cache comparison
 - v1.1: Changeset compute-then-execute pattern enables dry-run and preview
+- v1.1: CLI flags on both parent and subcommand level, merged via OR for flexible usage
+- v1.1: PROPFIND fallback when PUT returns empty ETag
+- v1.1: Force flag uses server ETag for If-Match on conflicts
 
 ### Pending Todos
 
@@ -67,6 +70,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-07
-Stopped at: Completed 04-03-PLAN.md (push orchestration) -- Phase 4 complete
+Last session: 2026-03-08
+Stopped at: Completed 05-01-PLAN.md (push command) -- Phase 5 complete
 Resume file: None

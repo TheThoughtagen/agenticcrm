@@ -17,10 +17,10 @@ Requirements for two-way iCloud sync milestone. Each maps to roadmap phases.
 
 ### Push Command
 
-- [ ] **CMD-01**: User can run `acrm sync push` to push all local changes to iCloud
-- [ ] **CMD-02**: User can run `acrm sync push --dry-run` to preview changes without pushing
-- [ ] **CMD-03**: User can run `acrm sync push --force` to skip conflict checks
-- [ ] **CMD-04**: Push reports summary (X created, Y updated, Z deleted, W conflicts)
+- [x] **CMD-01**: User can run `acrm sync push` to push all local changes to iCloud
+- [x] **CMD-02**: User can run `acrm sync push --dry-run` to preview changes without pushing
+- [x] **CMD-03**: User can run `acrm sync push --force` to skip conflict checks
+- [x] **CMD-04**: Push reports summary (X created, Y updated, Z deleted, W conflicts)
 
 ### Selective Sync
 
@@ -83,10 +83,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PUSH-03 | Phase 4 | Complete |
 | PUSH-04 | Phase 4 | Complete |
 | PUSH-05 | Phase 4 | Complete |
-| CMD-01 | Phase 5 | Pending |
-| CMD-02 | Phase 5 | Pending |
-| CMD-03 | Phase 5 | Pending |
-| CMD-04 | Phase 5 | Pending |
+| CMD-01 | Phase 5 | Complete |
+| CMD-02 | Phase 5 | Complete |
+| CMD-03 | Phase 5 | Complete |
+| CMD-04 | Phase 5 | Complete |
 | FILT-01 | Phase 6 | Pending |
 | FILT-02 | Phase 6 | Pending |
 | FILT-03 | Phase 6 | Pending |
