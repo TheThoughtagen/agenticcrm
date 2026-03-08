@@ -1,14 +1,18 @@
 use anyhow::Result;
+use serde::Serialize;
 use std::collections::HashMap;
+use std::fmt;
 use std::path::Path;
 use url::Url;
 
+use crate::frontmatter;
 use crate::models::{ContactFile, Status};
 use crate::store;
 use crate::sync::carddav::{CardDavClient, VCardEntry};
 use crate::sync::vcard_write;
 
 /// A single action detail from a push operation.
+#[derive(Serialize)]
 pub struct PushDetail {
     pub name: String,
     pub action: String, // "created", "updated", "deleted", "conflict", "failed"
@@ -16,6 +20,7 @@ pub struct PushDetail {
 }
 
 /// Result of executing a push changeset.
+#[derive(Serialize)]
 pub struct PushResult {
     pub created: usize,
     pub updated: usize,
@@ -23,6 +28,20 @@ pub struct PushResult {
     pub conflicted: usize,
     pub failed: usize,
     pub details: Vec<PushDetail>,
+}
+
+impl fmt::Display for PushResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Push complete: {} created, {} updated, {} deleted, {} conflicts",
+            self.created, self.updated, self.deleted, self.conflicted
+        )?;
+        if self.failed > 0 {
+            write!(f, ", {} failed", self.failed)?;
+        }
+        Ok(())
+    }
 }
 
 /// A computed set of changes to push to the server.
@@ -156,23 +175,294 @@ pub fn compute_push_changeset(
 /// For deletes: DELETE with If-Match etag, remove cache on success.
 /// For conflicts: if force=true, treat as updates. Otherwise skip and report.
 pub fn execute_push(
-    _client: &CardDavClient,
-    _addressbook_url: &Url,
-    _crm_root: &Path,
-    _changeset: &PushChangeset,
-    _force: bool,
+    client: &CardDavClient,
+    addressbook_url: &Url,
+    crm_root: &Path,
+    changeset: &PushChangeset,
+    force: bool,
 ) -> Result<PushResult> {
-    // Implementation will be called by the CLI push command in Phase 5.
-    // The function signature and types are defined here for infrastructure readiness.
-    // Actual execution requires network access and is tested via integration tests.
-    Ok(PushResult {
+    let mut result = PushResult {
         created: 0,
         updated: 0,
         deleted: 0,
         conflicted: 0,
         failed: 0,
         details: Vec::new(),
-    })
+    };
+
+    // --- Process creates ---
+    for cf in &changeset.creates {
+        let vcard_text = match vcard_write::contact_to_vcard(&cf.contact) {
+            Ok(v) => v,
+            Err(e) => {
+                result.failed += 1;
+                result.details.push(PushDetail {
+                    name: cf.contact.name.clone(),
+                    action: "failed".to_string(),
+                    error: Some(format!("serialize error: {}", e)),
+                });
+                continue;
+            }
+        };
+
+        let new_uuid = uuid::Uuid::new_v4().to_string();
+        let url = match CardDavClient::build_vcard_url(addressbook_url, &new_uuid) {
+            Ok(u) => u,
+            Err(e) => {
+                result.failed += 1;
+                result.details.push(PushDetail {
+                    name: cf.contact.name.clone(),
+                    action: "failed".to_string(),
+                    error: Some(format!("URL build error: {}", e)),
+                });
+                continue;
+            }
+        };
+
+        match client.put_vcard(&url, &vcard_text, None) {
+            Ok(returned_etag) => {
+                let new_etag = if returned_etag.is_empty() {
+                    // PROPFIND fallback: fetch list and find etag by UUID
+                    match client.fetch_vcard_list(addressbook_url) {
+                        Ok(entries) => {
+                            entries.iter()
+                                .find(|e| extract_uid_from_href(&e.href) == new_uuid)
+                                .map(|e| e.etag.clone())
+                                .unwrap_or_default()
+                        }
+                        Err(_) => String::new(),
+                    }
+                } else {
+                    returned_etag
+                };
+
+                // Update frontmatter: set source, source_id, etag
+                let mut fm = cf.raw_frontmatter.clone();
+                fm = frontmatter::update_field(&fm, "source", "icloud");
+                fm = frontmatter::update_field(&fm, "source_id", &format!("\"{}\"", new_uuid));
+                fm = frontmatter::update_field(&fm, "etag", &format!("\"{}\"", new_etag));
+                if !fm.ends_with('\n') {
+                    fm.push('\n');
+                }
+                let content = format!("---\n{}---\n\n{}", fm, cf.body);
+                if let Err(e) = std::fs::write(&cf.path, content) {
+                    eprintln!("Warning: failed to update frontmatter for {}: {}", cf.contact.name, e);
+                }
+
+                // Cache the vCard
+                if let Err(e) = vcard_write::write_cached_vcard(crm_root, &new_uuid, &vcard_text) {
+                    eprintln!("Warning: failed to cache vCard for {}: {}", cf.contact.name, e);
+                }
+
+                result.created += 1;
+                result.details.push(PushDetail {
+                    name: cf.contact.name.clone(),
+                    action: "created".to_string(),
+                    error: None,
+                });
+            }
+            Err(e) => {
+                result.failed += 1;
+                result.details.push(PushDetail {
+                    name: cf.contact.name.clone(),
+                    action: "failed".to_string(),
+                    error: Some(format!("{}", e)),
+                });
+            }
+        }
+    }
+
+    // --- Process updates ---
+    for (cf, cached_vcard) in &changeset.updates {
+        let vcard_text = match vcard_write::merge_contact_to_vcard(&cf.contact, cached_vcard) {
+            Ok(v) => v,
+            Err(e) => {
+                result.failed += 1;
+                result.details.push(PushDetail {
+                    name: cf.contact.name.clone(),
+                    action: "failed".to_string(),
+                    error: Some(format!("serialize error: {}", e)),
+                });
+                continue;
+            }
+        };
+
+        let url = match CardDavClient::build_vcard_url(addressbook_url, &cf.contact.source_id) {
+            Ok(u) => u,
+            Err(e) => {
+                result.failed += 1;
+                result.details.push(PushDetail {
+                    name: cf.contact.name.clone(),
+                    action: "failed".to_string(),
+                    error: Some(format!("URL build error: {}", e)),
+                });
+                continue;
+            }
+        };
+
+        match client.put_vcard(&url, &vcard_text, Some(&cf.contact.etag)) {
+            Ok(returned_etag) => {
+                let new_etag = if returned_etag.is_empty() {
+                    match client.fetch_vcard_list(addressbook_url) {
+                        Ok(entries) => {
+                            entries.iter()
+                                .find(|e| extract_uid_from_href(&e.href) == cf.contact.source_id)
+                                .map(|e| e.etag.clone())
+                                .unwrap_or_default()
+                        }
+                        Err(_) => String::new(),
+                    }
+                } else {
+                    returned_etag
+                };
+
+                // Update frontmatter: etag only
+                let mut fm = cf.raw_frontmatter.clone();
+                fm = frontmatter::update_field(&fm, "etag", &format!("\"{}\"", new_etag));
+                if !fm.ends_with('\n') {
+                    fm.push('\n');
+                }
+                let content = format!("---\n{}---\n\n{}", fm, cf.body);
+                if let Err(e) = std::fs::write(&cf.path, content) {
+                    eprintln!("Warning: failed to update frontmatter for {}: {}", cf.contact.name, e);
+                }
+
+                // Update cache
+                if let Err(e) = vcard_write::write_cached_vcard(crm_root, &cf.contact.source_id, &vcard_text) {
+                    eprintln!("Warning: failed to cache vCard for {}: {}", cf.contact.name, e);
+                }
+
+                result.updated += 1;
+                result.details.push(PushDetail {
+                    name: cf.contact.name.clone(),
+                    action: "updated".to_string(),
+                    error: None,
+                });
+            }
+            Err(e) => {
+                result.failed += 1;
+                result.details.push(PushDetail {
+                    name: cf.contact.name.clone(),
+                    action: "failed".to_string(),
+                    error: Some(format!("{}", e)),
+                });
+            }
+        }
+    }
+
+    // --- Process deletes ---
+    for (source_id, etag, name) in &changeset.deletes {
+        let url = match CardDavClient::build_vcard_url(addressbook_url, source_id) {
+            Ok(u) => u,
+            Err(e) => {
+                result.failed += 1;
+                result.details.push(PushDetail {
+                    name: name.clone(),
+                    action: "failed".to_string(),
+                    error: Some(format!("URL build error: {}", e)),
+                });
+                continue;
+            }
+        };
+
+        match client.delete_vcard(&url, etag) {
+            Ok(()) => {
+                if let Err(e) = vcard_write::delete_cached_vcard(crm_root, source_id) {
+                    eprintln!("Warning: failed to remove cached vCard for {}: {}", name, e);
+                }
+
+                result.deleted += 1;
+                result.details.push(PushDetail {
+                    name: name.clone(),
+                    action: "deleted".to_string(),
+                    error: None,
+                });
+            }
+            Err(e) => {
+                result.failed += 1;
+                result.details.push(PushDetail {
+                    name: name.clone(),
+                    action: "failed".to_string(),
+                    error: Some(format!("{}", e)),
+                });
+            }
+        }
+    }
+
+    // --- Process conflicts ---
+    for (cf, local_etag, server_etag) in &changeset.conflicts {
+        if force {
+            // Force: treat as update using server etag for If-Match
+            let cached = vcard_write::read_cached_vcard(crm_root, &cf.contact.source_id);
+            let vcard_text = match cached {
+                Some(ref cached_text) => vcard_write::merge_contact_to_vcard(&cf.contact, cached_text)?,
+                None => vcard_write::contact_to_vcard(&cf.contact)?,
+            };
+
+            let url = CardDavClient::build_vcard_url(addressbook_url, &cf.contact.source_id)?;
+
+            match client.put_vcard(&url, &vcard_text, Some(server_etag)) {
+                Ok(returned_etag) => {
+                    let new_etag = if returned_etag.is_empty() {
+                        match client.fetch_vcard_list(addressbook_url) {
+                            Ok(entries) => {
+                                entries.iter()
+                                    .find(|e| extract_uid_from_href(&e.href) == cf.contact.source_id)
+                                    .map(|e| e.etag.clone())
+                                    .unwrap_or_default()
+                            }
+                            Err(_) => String::new(),
+                        }
+                    } else {
+                        returned_etag
+                    };
+
+                    // Update frontmatter etag
+                    let mut fm = cf.raw_frontmatter.clone();
+                    fm = frontmatter::update_field(&fm, "etag", &format!("\"{}\"", new_etag));
+                    if !fm.ends_with('\n') {
+                        fm.push('\n');
+                    }
+                    let content = format!("---\n{}---\n\n{}", fm, cf.body);
+                    if let Err(e) = std::fs::write(&cf.path, content) {
+                        eprintln!("Warning: failed to update frontmatter for {}: {}", cf.contact.name, e);
+                    }
+
+                    if let Err(e) = vcard_write::write_cached_vcard(crm_root, &cf.contact.source_id, &vcard_text) {
+                        eprintln!("Warning: failed to cache vCard for {}: {}", cf.contact.name, e);
+                    }
+
+                    result.updated += 1;
+                    result.details.push(PushDetail {
+                        name: cf.contact.name.clone(),
+                        action: "updated".to_string(),
+                        error: None,
+                    });
+                }
+                Err(e) => {
+                    result.failed += 1;
+                    result.details.push(PushDetail {
+                        name: cf.contact.name.clone(),
+                        action: "failed".to_string(),
+                        error: Some(format!("{}", e)),
+                    });
+                }
+            }
+        } else {
+            // No force: skip and report conflict
+            result.conflicted += 1;
+            result.details.push(PushDetail {
+                name: cf.contact.name.clone(),
+                action: "conflict".to_string(),
+                error: Some(format!(
+                    "server ETag {} differs from local {}",
+                    server_etag, local_etag
+                )),
+            });
+        }
+    }
+
+    Ok(result)
 }
 
 #[cfg(test)]
