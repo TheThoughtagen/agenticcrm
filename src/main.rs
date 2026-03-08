@@ -104,6 +104,24 @@ enum Commands {
 enum SyncAction {
     /// Set up iCloud credentials
     Setup,
+    /// Pull contacts from iCloud
+    Pull {
+        /// Force re-download all contacts (ignore ETags)
+        #[arg(long)]
+        force: bool,
+        /// Show what would change without writing
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Push local changes to iCloud
+    Push {
+        /// Force push even when server has newer changes
+        #[arg(long)]
+        force: bool,
+        /// Show what would change without pushing
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -133,6 +151,12 @@ fn main() -> anyhow::Result<()> {
             dry_run,
         } => match action {
             Some(SyncAction::Setup) => commands::sync::run_setup(fmt),
+            Some(SyncAction::Push { force: f, dry_run: d }) => {
+                commands::sync::run_push(force || f, dry_run || d, fmt)
+            }
+            Some(SyncAction::Pull { force: f, dry_run: d }) => {
+                commands::sync::run_sync(force || f, dry_run || d, fmt)
+            }
             None => commands::sync::run_sync(force, dry_run, fmt),
         },
     }

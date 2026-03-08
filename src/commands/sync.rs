@@ -8,7 +8,7 @@ use crate::format::{self, OutputFormat};
 use crate::frontmatter;
 use crate::models::ContactFile;
 use crate::store;
-use crate::sync::{carddav::CardDavClient, config, dedup, vcard_map, vcard_write};
+use crate::sync::{carddav::CardDavClient, config, dedup, push, vcard_map, vcard_write};
 
 #[derive(Serialize)]
 pub struct SyncResult {
@@ -54,6 +54,146 @@ pub fn run_setup(_fmt: &OutputFormat) -> Result<()> {
     println!("You can now run `acrm sync` to pull contacts");
 
     Ok(())
+}
+
+#[derive(Serialize)]
+pub struct PushSyncResult {
+    pub created: usize,
+    pub updated: usize,
+    pub deleted: usize,
+    pub conflicted: usize,
+    pub failed: usize,
+    pub dry_run: bool,
+    pub details: Vec<PushSyncDetail>,
+}
+
+#[derive(Serialize)]
+pub struct PushSyncDetail {
+    pub name: String,
+    pub action: String,
+    pub error: Option<String>,
+}
+
+impl fmt::Display for PushSyncResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let prefix = if self.dry_run { "[DRY RUN] " } else { "" };
+        write!(
+            f,
+            "{}Push complete: {} created, {} updated, {} deleted, {} conflicts",
+            prefix, self.created, self.updated, self.deleted, self.conflicted
+        )?;
+        if self.failed > 0 {
+            write!(f, ", {} failed", self.failed)?;
+        }
+        writeln!(f)?;
+        for detail in &self.details {
+            let prefix_char = match detail.action.as_str() {
+                "created" => "+",
+                "updated" => "~",
+                "deleted" => "-",
+                "conflict" => "!",
+                "failed" => "x",
+                _ => "?",
+            };
+            let label = match detail.action.as_str() {
+                "created" => "Created",
+                "updated" => "Updated",
+                "deleted" => "Deleted",
+                "conflict" => "Conflict",
+                "failed" => "Failed",
+                _ => &detail.action,
+            };
+            if let Some(ref err) = detail.error {
+                writeln!(f, "  {} {}: {} ({})", prefix_char, label, detail.name, err)?;
+            } else {
+                writeln!(f, "  {} {}: {}", prefix_char, label, detail.name)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Run the `acrm sync push` command: push local changes to iCloud via CardDAV.
+pub fn run_push(force: bool, dry_run: bool, fmt: &OutputFormat) -> Result<()> {
+    // Load credentials
+    let (apple_id, app_password) = config::load_credentials()
+        .context("Run `acrm sync setup` first to configure iCloud credentials")?;
+
+    // Create CardDAV client
+    let client = CardDavClient::new(&apple_id, &app_password)?;
+
+    // Discover address book
+    println!("Discovering address book...");
+    let addressbook_url = client.discover_address_book()?;
+
+    // Fetch server state
+    let server_entries = client.fetch_vcard_list(&addressbook_url)?;
+    println!("Found {} contacts on iCloud", server_entries.len());
+
+    // Load local contacts
+    let crm_root = store::find_crm_root()?;
+    let contacts = store::load_all_contacts(&crm_root)?;
+
+    // Compute changeset
+    let changeset = push::compute_push_changeset(&crm_root, contacts, &server_entries)?;
+
+    if dry_run {
+        println!("[DRY RUN] Push preview:");
+        for cf in &changeset.creates {
+            println!("  + Would create: {}", cf.contact.name);
+        }
+        for (cf, _) in &changeset.updates {
+            println!("  ~ Would update: {}", cf.contact.name);
+        }
+        for (_, _, name) in &changeset.deletes {
+            println!("  - Would delete: {}", name);
+        }
+        for (cf, local_etag, server_etag) in &changeset.conflicts {
+            println!(
+                "  ! Conflict: {} (local etag: {}, server etag: {})",
+                cf.contact.name, local_etag, server_etag
+            );
+        }
+        let total = changeset.creates.len()
+            + changeset.updates.len()
+            + changeset.deletes.len()
+            + changeset.conflicts.len();
+        if total == 0 {
+            println!("  (no changes to push)");
+        } else {
+            println!("{} total changes", total);
+        }
+        return Ok(());
+    }
+
+    // Execute push
+    let change_count = changeset.creates.len()
+        + changeset.updates.len()
+        + changeset.deletes.len()
+        + if force { changeset.conflicts.len() } else { 0 };
+    println!("Pushing {} changes to iCloud...", change_count);
+
+    let push_result = push::execute_push(&client, &addressbook_url, &crm_root, &changeset, force)?;
+
+    let result = PushSyncResult {
+        created: push_result.created,
+        updated: push_result.updated,
+        deleted: push_result.deleted,
+        conflicted: push_result.conflicted,
+        failed: push_result.failed,
+        dry_run: false,
+        details: push_result
+            .details
+            .into_iter()
+            .map(|d| PushSyncDetail {
+                name: d.name,
+                action: d.action,
+                error: d.error,
+            })
+            .collect(),
+    };
+
+    format::output(&result, fmt)
 }
 
 /// Run the `acrm sync` command: pull contacts from iCloud via CardDAV.
