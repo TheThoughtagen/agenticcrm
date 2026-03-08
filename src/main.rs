@@ -9,6 +9,8 @@ mod validation;
 
 use clap::{Parser, Subcommand};
 use format::OutputFormat;
+use sync::config::FilterConfig;
+use sync::filter::SyncFilter;
 
 #[derive(Parser)]
 #[command(name = "acrm", about = "Agent-friendly personal CRM")]
@@ -97,6 +99,12 @@ enum Commands {
         /// Show what would change without writing
         #[arg(long)]
         dry_run: bool,
+        /// Filter by tag (repeatable, overrides config)
+        #[arg(long)]
+        tag: Vec<String>,
+        /// Filter by status (repeatable, overrides config)
+        #[arg(long)]
+        status: Vec<String>,
     },
 }
 
@@ -112,6 +120,12 @@ enum SyncAction {
         /// Show what would change without writing
         #[arg(long)]
         dry_run: bool,
+        /// Filter by tag (repeatable, overrides config)
+        #[arg(long)]
+        tag: Vec<String>,
+        /// Filter by status (repeatable, overrides config)
+        #[arg(long)]
+        status: Vec<String>,
     },
     /// Push local changes to iCloud
     Push {
@@ -121,6 +135,12 @@ enum SyncAction {
         /// Show what would change without pushing
         #[arg(long)]
         dry_run: bool,
+        /// Filter by tag (repeatable, overrides config)
+        #[arg(long)]
+        tag: Vec<String>,
+        /// Filter by status (repeatable, overrides config)
+        #[arg(long)]
+        status: Vec<String>,
     },
 }
 
@@ -149,15 +169,69 @@ fn main() -> anyhow::Result<()> {
             action,
             force,
             dry_run,
-        } => match action {
-            Some(SyncAction::Setup) => commands::sync::run_setup(fmt),
-            Some(SyncAction::Push { force: f, dry_run: d }) => {
-                commands::sync::run_push(force || f, dry_run || d, fmt)
+            tag,
+            status,
+        } => {
+            // Load config for filter sections; default to empty if not configured yet
+            let (push_fc, pull_fc) = match sync::config::load_sync_config() {
+                Ok(cfg) => (cfg.push_filters, cfg.pull_filters),
+                Err(_) => (FilterConfig::default(), FilterConfig::default()),
+            };
+
+            match action {
+                Some(SyncAction::Setup) => commands::sync::run_setup(fmt),
+                Some(SyncAction::Push {
+                    force: f,
+                    dry_run: d,
+                    tag: sub_tag,
+                    status: sub_status,
+                }) => {
+                    let merged_tags = merge_vecs(tag, sub_tag);
+                    let merged_statuses = merge_vecs(status, sub_status);
+                    let filter = SyncFilter::from_config_and_cli(
+                        push_fc.tags,
+                        push_fc.statuses,
+                        merged_tags,
+                        merged_statuses,
+                    );
+                    commands::sync::run_push(force || f, dry_run || d, &filter, fmt)
+                }
+                Some(SyncAction::Pull {
+                    force: f,
+                    dry_run: d,
+                    tag: sub_tag,
+                    status: sub_status,
+                }) => {
+                    let merged_tags = merge_vecs(tag, sub_tag);
+                    let merged_statuses = merge_vecs(status, sub_status);
+                    let filter = SyncFilter::from_config_and_cli(
+                        pull_fc.tags,
+                        pull_fc.statuses,
+                        merged_tags,
+                        merged_statuses,
+                    );
+                    commands::sync::run_sync(force || f, dry_run || d, &filter, fmt)
+                }
+                None => {
+                    let filter = SyncFilter::from_config_and_cli(
+                        pull_fc.tags,
+                        pull_fc.statuses,
+                        tag,
+                        status,
+                    );
+                    commands::sync::run_sync(force, dry_run, &filter, fmt)
+                }
             }
-            Some(SyncAction::Pull { force: f, dry_run: d }) => {
-                commands::sync::run_sync(force || f, dry_run || d, fmt)
-            }
-            None => commands::sync::run_sync(force, dry_run, fmt),
-        },
+        }
     }
+}
+
+/// Merge two Vec<String> by concatenating and deduplicating.
+fn merge_vecs(mut a: Vec<String>, b: Vec<String>) -> Vec<String> {
+    for item in b {
+        if !a.contains(&item) {
+            a.push(item);
+        }
+    }
+    a
 }

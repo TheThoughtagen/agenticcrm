@@ -8,7 +8,7 @@ use crate::format::{self, OutputFormat};
 use crate::frontmatter;
 use crate::models::ContactFile;
 use crate::store;
-use crate::sync::{carddav::CardDavClient, config, dedup, push, vcard_map, vcard_write};
+use crate::sync::{carddav::CardDavClient, config, dedup, filter::SyncFilter, push, vcard_map, vcard_write};
 
 #[derive(Serialize)]
 pub struct SyncResult {
@@ -114,7 +114,7 @@ impl fmt::Display for PushSyncResult {
 }
 
 /// Run the `acrm sync push` command: push local changes to iCloud via CardDAV.
-pub fn run_push(force: bool, dry_run: bool, fmt: &OutputFormat) -> Result<()> {
+pub fn run_push(force: bool, dry_run: bool, filter: &SyncFilter, fmt: &OutputFormat) -> Result<()> {
     // Load credentials
     let (apple_id, app_password) = config::load_credentials()
         .context("Run `acrm sync setup` first to configure iCloud credentials")?;
@@ -132,7 +132,18 @@ pub fn run_push(force: bool, dry_run: bool, fmt: &OutputFormat) -> Result<()> {
 
     // Load local contacts
     let crm_root = store::find_crm_root()?;
-    let contacts = store::load_all_contacts(&crm_root)?;
+    let mut contacts = store::load_all_contacts(&crm_root)?;
+
+    // Apply push filter to active contacts before changeset computation.
+    // Archived contact deletion is handled independently in compute_push_changeset.
+    if !filter.is_empty() {
+        let before = contacts.len();
+        contacts.retain(|cf| filter.matches(&cf.contact));
+        let filtered = before - contacts.len();
+        if filtered > 0 {
+            println!("Filtered out {} contacts (push filter)", filtered);
+        }
+    }
 
     // Compute changeset
     let changeset = push::compute_push_changeset(&crm_root, contacts, &server_entries)?;
@@ -197,7 +208,7 @@ pub fn run_push(force: bool, dry_run: bool, fmt: &OutputFormat) -> Result<()> {
 }
 
 /// Run the `acrm sync` command: pull contacts from iCloud via CardDAV.
-pub fn run_sync(force: bool, dry_run: bool, fmt: &OutputFormat) -> Result<()> {
+pub fn run_sync(force: bool, dry_run: bool, filter: &SyncFilter, fmt: &OutputFormat) -> Result<()> {
     // Load credentials
     let (apple_id, app_password) = config::load_credentials().context(
         "Run `acrm sync setup` first to configure iCloud credentials",
@@ -264,6 +275,16 @@ pub fn run_sync(force: bool, dry_run: bool, fmt: &OutputFormat) -> Result<()> {
                 if !dry_run {
                     let _ = vcard_write::cache_contact_snapshot(&crm_root, &uid, &mapped.contact);
                 }
+                unchanged_count += 1;
+                synced.push(SyncedContact {
+                    name: contact_name,
+                    action: "unchanged".to_string(),
+                });
+                continue;
+            }
+
+            // Apply pull filter to existing contacts (skip non-matching updates)
+            if !filter.is_empty() && !filter.matches(&mapped.contact) {
                 unchanged_count += 1;
                 synced.push(SyncedContact {
                     name: contact_name,
