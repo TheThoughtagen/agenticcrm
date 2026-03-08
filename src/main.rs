@@ -89,7 +89,7 @@ enum Commands {
     Due,
     /// Launch interactive TUI
     Tui,
-    /// Sync contacts from iCloud
+    /// Sync contacts with iCloud (pull then push)
     Sync {
         #[command(subcommand)]
         action: Option<SyncAction>,
@@ -213,13 +213,28 @@ fn main() -> anyhow::Result<()> {
                     commands::sync::run_sync(force || f, dry_run || d, &filter, fmt)
                 }
                 None => {
-                    let filter = SyncFilter::from_config_and_cli(
+                    // Build separate filters for pull and push
+                    let pull_filter = SyncFilter::from_config_and_cli(
                         pull_fc.tags,
                         pull_fc.statuses,
+                        tag.clone(),
+                        status.clone(),
+                    );
+                    let push_filter = SyncFilter::from_config_and_cli(
+                        push_fc.tags,
+                        push_fc.statuses,
                         tag,
                         status,
                     );
-                    commands::sync::run_sync(force, dry_run, &filter, fmt)
+
+                    // Bidirectional: pull then push
+                    println!("Starting bidirectional sync...\n");
+                    println!("--- Pull ---");
+                    commands::sync::run_sync(force, dry_run, &pull_filter, fmt)?;
+                    println!("\n--- Push ---");
+                    commands::sync::run_push(force, dry_run, &push_filter, fmt)?;
+                    println!("\nBidirectional sync complete.");
+                    Ok(())
                 }
             }
         }
