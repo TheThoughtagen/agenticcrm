@@ -8,7 +8,7 @@ progress:
   total_phases: 2
   completed_phases: 2
   total_plans: 7
-  completed_plans: 6
+  completed_plans: 7
 ---
 
 # Project State
@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 ## Current Position
 
 Phase: 6 of 6 (Selective Sync & Bidirectional) -- third phase of v1.1
-Plan: 1 of 2 in current phase (Plan 01 complete -- sync filtering)
-Status: Executing
-Last activity: 2026-03-08 -- completed 06-01 sync filtering (tag/status filters for push/pull)
+Plan: 2 of 2 in current phase (Plan 02 complete -- bidirectional sync)
+Status: Complete
+Last activity: 2026-03-08 -- completed 06-02 bidirectional sync (pull-then-push)
 
-Progress: [████████░░] 86% (6/7 v1.1 plans)
+Progress: [██████████] 100% (7/7 v1.1 plans)
 
 ## Performance Metrics
 
@@ -63,6 +63,7 @@ Recent decisions affecting current work:
 - v1.1: New contacts from server always pass pull filter (no tag filtering on new)
 - v1.1: Push filter applied before changeset; archived deletes unaffected
 - v1.1: Status matching via explicit match arms not serde serialization
+- v1.1: CLI tag/status flags cloned and applied to both pull and push phases in bidirectional sync
 
 ### Pending Todos
 
@@ -76,5 +77,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-08
-Stopped at: Completed 06-01-PLAN.md (sync filtering: tag/status filters for push/pull)
+Stopped at: Completed 06-02-PLAN.md (bidirectional sync: pull-then-push)
 Resume file: None

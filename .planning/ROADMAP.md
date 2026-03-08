@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 MVP** — Phases 1-3 (shipped 2026-03-06)
-- 🚧 **v1.1 Two-Way iCloud Sync** — Phases 4-6 (in progress)
+- ✅ **v1.1 Two-Way iCloud Sync** — Phases 4-6 (shipped 2026-03-08)
 
 ## Phases
 
@@ -18,9 +18,9 @@
 
 ### v1.1 Two-Way iCloud Sync
 
-- [ ] **Phase 4: Push Infrastructure** - vCard serialization, CardDAV PUT/DELETE, vCard cache, ETag conflict detection
-- [ ] **Phase 5: Push Command** - `acrm sync push` with dry-run, force, and result reporting
-- [ ] **Phase 6: Selective Sync & Bidirectional** - Tag/status filters for push and pull, `acrm sync` as pull-then-push
+- [x] **Phase 4: Push Infrastructure** - vCard serialization, CardDAV PUT/DELETE, vCard cache, ETag conflict detection
+- [x] **Phase 5: Push Command** - `acrm sync push` with dry-run, force, and result reporting
+- [x] **Phase 6: Selective Sync & Bidirectional** - Tag/status filters for push and pull, `acrm sync` as pull-then-push
 
 ## Phase Details
 
@@ -37,9 +37,9 @@
 **Plans**: 3 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — vCard serialization and cache module
-- [ ] 04-02-PLAN.md — CardDAV PUT/DELETE methods
-- [ ] 04-03-PLAN.md — Push orchestration and pull cache integration
+- [x] 04-01-PLAN.md — vCard serialization and cache module
+- [x] 04-02-PLAN.md — CardDAV PUT/DELETE methods
+- [x] 04-03-PLAN.md — Push orchestration and pull cache integration
 
 ### Phase 5: Push Command
 **Goal**: User has a complete CLI interface for pushing CRM changes to iCloud with previewing, overriding, and reporting
@@ -54,7 +54,7 @@ Plans:
 
 Plans:
 - [x] 05-01-PLAN.md — Implement execute_push and add sync push/pull CLI subcommands
-- [ ] 05-02-PLAN.md — Fix false-positive changeset detection and vCard merge data loss (gap closure)
+- [x] 05-02-PLAN.md — Fix false-positive changeset detection and vCard merge data loss (gap closure)
 
 ### Phase 6: Selective Sync & Bidirectional
 **Goal**: User can control which contacts sync in each direction and run a single command for full bidirectional sync
@@ -69,8 +69,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 06-01-PLAN.md — SyncFilter module, toml config parsing, CLI flags, filter wiring in push/pull
-- [ ] 06-02-PLAN.md — Bidirectional sync: route bare `acrm sync` to pull-then-push
+- [x] 06-01-PLAN.md — SyncFilter module, toml config parsing, CLI flags, filter wiring in push/pull
+- [x] 06-02-PLAN.md — Bidirectional sync: route bare `acrm sync` to pull-then-push
 
 ## Progress
 
@@ -81,6 +81,6 @@ Plans:
 | 1. CLI Foundation | v1.0 | 3/3 | Complete | 2026-03-05 |
 | 2. CardDAV Sync | v1.0 | 3/3 | Complete | 2026-03-06 |
 | 3. Interactive TUI | v1.0 | 3/3 | Complete | 2026-03-06 |
-| 4. Push Infrastructure | v1.1 | 0/3 | Not started | - |
-| 5. Push Command | v1.1 | 1/2 | In progress | - |
-| 6. Selective Sync & Bidirectional | v1.1 | 0/2 | Not started | - |
+| 4. Push Infrastructure | v1.1 | 3/3 | Complete | 2026-03-07 |
+| 5. Push Command | v1.1 | 2/2 | Complete | 2026-03-08 |
+| 6. Selective Sync & Bidirectional | v1.1 | 2/2 | Complete | 2026-03-08 |

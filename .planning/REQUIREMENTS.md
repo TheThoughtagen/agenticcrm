@@ -31,8 +31,8 @@ Requirements for two-way iCloud sync milestone. Each maps to roadmap phases.
 
 ### Bidirectional Sync
 
-- [ ] **BIDI-01**: `acrm sync` performs pull-then-push in one command
-- [ ] **BIDI-02**: User can still run `acrm sync pull` and `acrm sync push` separately
+- [x] **BIDI-01**: `acrm sync` performs pull-then-push in one command
+- [x] **BIDI-02**: User can still run `acrm sync pull` and `acrm sync push` separately
 
 ## v2 Requirements
 
@@ -91,8 +91,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FILT-02 | Phase 6 | Complete |
 | FILT-03 | Phase 6 | Complete |
 | FILT-04 | Phase 6 | Complete |
-| BIDI-01 | Phase 6 | Pending |
-| BIDI-02 | Phase 6 | Pending |
+| BIDI-01 | Phase 6 | Complete |
+| BIDI-02 | Phase 6 | Complete |
 
 **Coverage:**
 - v1.1 requirements: 15 total
