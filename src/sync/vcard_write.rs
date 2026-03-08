@@ -5,18 +5,6 @@ use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// Properties the CRM maps -- these get removed during merge and re-added from Contact data.
-const CRM_MAPPED_PROPERTIES: &[VCardProperty] = &[
-    VCardProperty::Fn,
-    VCardProperty::N,
-    VCardProperty::Email,
-    VCardProperty::Tel,
-    VCardProperty::Org,
-    VCardProperty::Title,
-    VCardProperty::Url,
-    VCardProperty::Bday,
-    VCardProperty::Note,
-];
 
 /// Build a fresh vCard 3.0 string from a Contact.
 pub fn contact_to_vcard(contact: &Contact) -> Result<String> {
@@ -111,8 +99,8 @@ pub fn contact_to_vcard(contact: &Contact) -> Result<String> {
     Ok(ensure_crlf(&vcard.to_string()))
 }
 
-/// Parse a cached vCard, replace CRM-mapped properties with current Contact data,
-/// preserve all other properties (X-ABUID, PHOTO, etc.), and serialize.
+/// Parse a cached vCard, replace CRM-mapped properties with current Contact data in-place,
+/// preserving property ordering, EMAIL/TEL parameters, NOTE, and all non-CRM properties.
 pub fn merge_contact_to_vcard(contact: &Contact, cached_vcard_text: &str) -> Result<String> {
     let vcard = match VCard::parse(cached_vcard_text) {
         Ok(vcard) => vcard,
@@ -122,89 +110,232 @@ pub fn merge_contact_to_vcard(contact: &Contact, cached_vcard_text: &str) -> Res
         }
     };
 
-    // Retain entries NOT in CRM_MAPPED_PROPERTIES (preserves VERSION, UID, X-*, PHOTO, etc.)
-    let mut retained: Vec<VCardEntry> = vcard
+    // Collect cached EMAIL/TEL entries for param matching
+    let cached_emails: Vec<&VCardEntry> = vcard
         .entries
-        .into_iter()
-        .filter(|entry| !CRM_MAPPED_PROPERTIES.contains(&entry.name))
+        .iter()
+        .filter(|e| e.name == VCardProperty::Email)
+        .collect();
+    let cached_tels: Vec<&VCardEntry> = vcard
+        .entries
+        .iter()
+        .filter(|e| e.name == VCardProperty::Tel)
         .collect();
 
-    // Re-add CRM-mapped properties from current Contact data
-    add_crm_entries(&mut retained, contact);
+    // Track which CRM properties we've placed (for single-value props)
+    let mut fn_placed = false;
+    let mut n_placed = false;
+    let mut org_placed = false;
+    let mut title_placed = false;
+    let mut url_placed = false;
+    let mut bday_placed = false;
+    let mut emails_placed = false;
+    let mut tels_placed = false;
 
-    let merged = VCard { entries: retained };
-    Ok(ensure_crlf(&merged.to_string()))
-}
+    let mut result_entries: Vec<VCardEntry> = Vec::new();
 
-/// Add CRM-mapped property entries to an existing entries list.
-/// Does NOT add VERSION or UID (those should already be retained from the cached vCard).
-fn add_crm_entries(entries: &mut Vec<VCardEntry>, contact: &Contact) {
-    // FN
-    entries.push(
-        VCardEntry::new(VCardProperty::Fn)
-            .with_value(VCardValue::Text(contact.name.clone())),
-    );
-
-    // N
     let (given, family) = split_name(&contact.name);
-    entries.push(
-        VCardEntry::new(VCardProperty::N)
-            .with_value(VCardValue::Component(vec![
-                family.to_string(),
-                given.to_string(),
-                String::new(),
-                String::new(),
-                String::new(),
-            ])),
-    );
 
-    // EMAIL
-    for email in &contact.email {
-        entries.push(
-            VCardEntry::new(VCardProperty::Email)
-                .with_value(VCardValue::Text(email.clone())),
-        );
+    for entry in &vcard.entries {
+        match entry.name {
+            VCardProperty::Fn if !fn_placed => {
+                fn_placed = true;
+                result_entries.push(
+                    VCardEntry::new(VCardProperty::Fn)
+                        .with_group(entry.group.clone())
+                        .with_value(VCardValue::Text(contact.name.clone())),
+                );
+            }
+            VCardProperty::Fn => {
+                // Skip duplicate FN entries
+            }
+            VCardProperty::N if !n_placed => {
+                n_placed = true;
+                result_entries.push(
+                    VCardEntry::new(VCardProperty::N)
+                        .with_group(entry.group.clone())
+                        .with_values(vec![
+                            VCardValue::Text(family.to_string()),
+                            VCardValue::Text(given.to_string()),
+                            VCardValue::Text(String::new()),
+                            VCardValue::Text(String::new()),
+                            VCardValue::Text(String::new()),
+                        ]),
+                );
+            }
+            VCardProperty::N => {}
+            VCardProperty::Email if !emails_placed => {
+                // Replace ALL email entries at the position of the first one
+                emails_placed = true;
+                for email in &contact.email {
+                    // Try to find a cached entry with matching value to preserve params
+                    let cached_match = cached_emails.iter().find(|ce| {
+                        extract_text_value(ce) == Some(email.as_str())
+                    });
+                    if let Some(cached_entry) = cached_match {
+                        // Preserve params from cached entry
+                        result_entries.push(
+                            VCardEntry::new(VCardProperty::Email)
+                                .with_group(cached_entry.group.clone())
+                                .with_params(cached_entry.params.clone())
+                                .with_value(VCardValue::Text(email.clone())),
+                        );
+                    } else {
+                        result_entries.push(
+                            VCardEntry::new(VCardProperty::Email)
+                                .with_value(VCardValue::Text(email.clone())),
+                        );
+                    }
+                }
+            }
+            VCardProperty::Email => {
+                // Skip subsequent cached EMAIL entries (already handled above)
+            }
+            VCardProperty::Tel if !tels_placed => {
+                tels_placed = true;
+                for phone in &contact.phone {
+                    let cached_match = cached_tels.iter().find(|ct| {
+                        extract_text_value(ct) == Some(phone.as_str())
+                    });
+                    if let Some(cached_entry) = cached_match {
+                        result_entries.push(
+                            VCardEntry::new(VCardProperty::Tel)
+                                .with_group(cached_entry.group.clone())
+                                .with_params(cached_entry.params.clone())
+                                .with_value(VCardValue::Text(phone.clone())),
+                        );
+                    } else {
+                        result_entries.push(
+                            VCardEntry::new(VCardProperty::Tel)
+                                .with_value(VCardValue::Text(phone.clone())),
+                        );
+                    }
+                }
+            }
+            VCardProperty::Tel => {}
+            VCardProperty::Org if !org_placed => {
+                org_placed = true;
+                if !contact.company.is_empty() {
+                    result_entries.push(
+                        VCardEntry::new(VCardProperty::Org)
+                            .with_group(entry.group.clone())
+                            .with_value(VCardValue::Text(contact.company.clone())),
+                    );
+                }
+            }
+            VCardProperty::Org => {}
+            VCardProperty::Title if !title_placed => {
+                title_placed = true;
+                if !contact.role.is_empty() {
+                    result_entries.push(
+                        VCardEntry::new(VCardProperty::Title)
+                            .with_group(entry.group.clone())
+                            .with_value(VCardValue::Text(contact.role.clone())),
+                    );
+                }
+            }
+            VCardProperty::Title => {}
+            VCardProperty::Url if !url_placed => {
+                url_placed = true;
+                if !contact.website.is_empty() {
+                    result_entries.push(
+                        VCardEntry::new(VCardProperty::Url)
+                            .with_group(entry.group.clone())
+                            .with_value(VCardValue::Text(contact.website.clone())),
+                    );
+                }
+            }
+            VCardProperty::Url => {}
+            VCardProperty::Bday if !bday_placed => {
+                bday_placed = true;
+                if let Some(bday) = contact.birthday {
+                    result_entries.push(
+                        VCardEntry::new(VCardProperty::Bday)
+                            .with_group(entry.group.clone())
+                            .with_value(VCardValue::Text(bday.format("%Y-%m-%d").to_string())),
+                    );
+                }
+            }
+            VCardProperty::Bday => {}
+            _ => {
+                // Preserve non-CRM properties (VERSION, UID, X-*, PHOTO, NOTE, etc.)
+                result_entries.push(entry.clone());
+            }
+        }
     }
 
-    // TEL
-    for phone in &contact.phone {
-        entries.push(
-            VCardEntry::new(VCardProperty::Tel)
-                .with_value(VCardValue::Text(phone.clone())),
+    // Append any CRM properties that weren't in the cached vCard
+    if !fn_placed {
+        result_entries.push(
+            VCardEntry::new(VCardProperty::Fn)
+                .with_value(VCardValue::Text(contact.name.clone())),
         );
     }
-
-    // ORG
-    if !contact.company.is_empty() {
-        entries.push(
+    if !n_placed {
+        result_entries.push(
+            VCardEntry::new(VCardProperty::N)
+                .with_values(vec![
+                    VCardValue::Text(family.to_string()),
+                    VCardValue::Text(given.to_string()),
+                    VCardValue::Text(String::new()),
+                    VCardValue::Text(String::new()),
+                    VCardValue::Text(String::new()),
+                ]),
+        );
+    }
+    if !emails_placed && !contact.email.is_empty() {
+        for email in &contact.email {
+            result_entries.push(
+                VCardEntry::new(VCardProperty::Email)
+                    .with_value(VCardValue::Text(email.clone())),
+            );
+        }
+    }
+    if !tels_placed && !contact.phone.is_empty() {
+        for phone in &contact.phone {
+            result_entries.push(
+                VCardEntry::new(VCardProperty::Tel)
+                    .with_value(VCardValue::Text(phone.clone())),
+            );
+        }
+    }
+    if !org_placed && !contact.company.is_empty() {
+        result_entries.push(
             VCardEntry::new(VCardProperty::Org)
                 .with_value(VCardValue::Text(contact.company.clone())),
         );
     }
-
-    // TITLE
-    if !contact.role.is_empty() {
-        entries.push(
+    if !title_placed && !contact.role.is_empty() {
+        result_entries.push(
             VCardEntry::new(VCardProperty::Title)
                 .with_value(VCardValue::Text(contact.role.clone())),
         );
     }
-
-    // URL
-    if !contact.website.is_empty() {
-        entries.push(
+    if !url_placed && !contact.website.is_empty() {
+        result_entries.push(
             VCardEntry::new(VCardProperty::Url)
                 .with_value(VCardValue::Text(contact.website.clone())),
         );
     }
-
-    // BDAY
-    if let Some(bday) = contact.birthday {
-        entries.push(
-            VCardEntry::new(VCardProperty::Bday)
-                .with_value(VCardValue::Text(bday.format("%Y-%m-%d").to_string())),
-        );
+    if !bday_placed {
+        if let Some(bday) = contact.birthday {
+            result_entries.push(
+                VCardEntry::new(VCardProperty::Bday)
+                    .with_value(VCardValue::Text(bday.format("%Y-%m-%d").to_string())),
+            );
+        }
     }
+
+    let merged = VCard { entries: result_entries };
+    Ok(ensure_crlf(&merged.to_string()))
+}
+
+/// Extract the text value from a VCardEntry, if it has one.
+fn extract_text_value(entry: &VCardEntry) -> Option<&str> {
+    entry.values.first().and_then(|v| match v {
+        VCardValue::Text(s) => Some(s.as_str()),
+        _ => None,
+    })
 }
 
 /// A snapshot of the CRM-relevant fields of a Contact for semantic comparison.
@@ -564,6 +695,107 @@ mod tests {
         assert!(!result.contains("Old Name"));
         assert!(!result.contains("old@example.com"));
         assert!(!result.contains("Old Corp"));
+    }
+
+    #[test]
+    fn test_merge_preserves_email_type_params() {
+        let contact = test_contact();
+        // Cached vCard has EMAIL with TYPE params from iCloud
+        let cached = "BEGIN:VCARD\r\n\
+                      VERSION:3.0\r\n\
+                      FN:Jane Smith\r\n\
+                      N:Smith;Jane;;;\r\n\
+                      EMAIL;type=INTERNET;type=HOME:jane@example.com\r\n\
+                      EMAIL;type=INTERNET;type=WORK:jane@work.com\r\n\
+                      UID:uid-abc-123\r\n\
+                      END:VCARD";
+        let result = merge_contact_to_vcard(&contact, cached).unwrap();
+        // Params should be preserved for matching email values
+        assert!(result.contains("jane@example.com"));
+        assert!(result.contains("jane@work.com"));
+        // Check that TYPE params are preserved
+        // calcard may serialize params differently -- just verify they're not stripped
+        assert!(result.contains("HOME") || result.contains("WORK") || result.contains("type=") || result.contains("TYPE="),
+            "EMAIL type params were stripped. Output:\n{}", result);
+    }
+
+    #[test]
+    fn test_merge_preserves_tel_type_params() {
+        let contact = test_contact();
+        let cached = "BEGIN:VCARD\r\n\
+                      VERSION:3.0\r\n\
+                      FN:Jane Smith\r\n\
+                      N:Smith;Jane;;;\r\n\
+                      TEL;type=CELL;type=VOICE:+1-555-0100\r\n\
+                      TEL;type=HOME;type=VOICE:+1-555-0200\r\n\
+                      UID:uid-abc-123\r\n\
+                      END:VCARD";
+        let result = merge_contact_to_vcard(&contact, cached).unwrap();
+        assert!(result.contains("+1-555-0100"));
+        assert!(result.contains("+1-555-0200"));
+        assert!(result.contains("CELL") || result.contains("HOME") || result.contains("type=") || result.contains("TYPE="),
+            "TEL type params were stripped. Output:\n{}", result);
+    }
+
+    #[test]
+    fn test_merge_preserves_note_property() {
+        let contact = test_contact();
+        let cached = "BEGIN:VCARD\r\n\
+                      VERSION:3.0\r\n\
+                      FN:Old Name\r\n\
+                      N:Name;Old;;;\r\n\
+                      NOTE:Important notes about this contact\r\n\
+                      UID:uid-abc-123\r\n\
+                      END:VCARD";
+        let result = merge_contact_to_vcard(&contact, cached).unwrap();
+        // NOTE should be preserved (not stripped)
+        assert!(result.contains("NOTE:Important notes about this contact"),
+            "NOTE property was dropped during merge. Output:\n{}", result);
+        // CRM properties should still be updated
+        assert!(result.contains("FN:Jane Smith"));
+    }
+
+    #[test]
+    fn test_merge_consistent_n_encoding() {
+        let contact = test_contact();
+        // contact_to_vcard path
+        let from_scratch = contact_to_vcard(&contact).unwrap();
+        // merge path
+        let cached = "BEGIN:VCARD\r\n\
+                      VERSION:3.0\r\n\
+                      FN:Old\r\n\
+                      N:Old;;;\r\n\
+                      UID:uid-abc-123\r\n\
+                      END:VCARD";
+        let merged = merge_contact_to_vcard(&contact, cached).unwrap();
+        // Both should produce the same N encoding
+        assert!(from_scratch.contains("N:Smith;Jane;;;"),
+            "contact_to_vcard N encoding wrong: {}", from_scratch);
+        assert!(merged.contains("N:Smith;Jane;;;"),
+            "merge N encoding wrong: {}", merged);
+    }
+
+    #[test]
+    fn test_merge_preserves_property_ordering() {
+        let contact = test_contact();
+        let cached = "BEGIN:VCARD\r\n\
+                      VERSION:3.0\r\n\
+                      FN:Old Name\r\n\
+                      N:Name;Old;;;\r\n\
+                      X-CUSTOM:before-email\r\n\
+                      EMAIL:jane@example.com\r\n\
+                      X-AFTER-EMAIL:after-email\r\n\
+                      UID:uid-abc-123\r\n\
+                      END:VCARD";
+        let result = merge_contact_to_vcard(&contact, cached).unwrap();
+        // FN should appear before X-CUSTOM (in-place replacement)
+        let fn_pos = result.find("FN:Jane Smith").unwrap();
+        let custom_pos = result.find("X-CUSTOM:before-email").unwrap();
+        let email_pos = result.find("EMAIL").unwrap();
+        let after_email_pos = result.find("X-AFTER-EMAIL:after-email").unwrap();
+        assert!(fn_pos < custom_pos, "FN should come before X-CUSTOM");
+        assert!(custom_pos < email_pos, "X-CUSTOM should come before EMAIL");
+        assert!(email_pos < after_email_pos, "EMAIL should come before X-AFTER-EMAIL");
     }
 
     #[test]
