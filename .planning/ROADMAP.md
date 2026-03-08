@@ -50,10 +50,11 @@ Plans:
   2. User can run `acrm sync push --dry-run` and see what would be pushed without any server changes
   3. User can run `acrm sync push --force` to skip conflict checks and push regardless
   4. After push completes, user sees a summary reporting counts of created, updated, deleted, and conflicted contacts
-**Plans**: 1 plan
+**Plans**: 2 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — Implement execute_push and add sync push/pull CLI subcommands
+- [x] 05-01-PLAN.md — Implement execute_push and add sync push/pull CLI subcommands
+- [ ] 05-02-PLAN.md — Fix false-positive changeset detection and vCard merge data loss (gap closure)
 
 ### Phase 6: Selective Sync & Bidirectional
 **Goal**: User can control which contacts sync in each direction and run a single command for full bidirectional sync
@@ -81,5 +82,5 @@ Plans:
 | 2. CardDAV Sync | v1.0 | 3/3 | Complete | 2026-03-06 |
 | 3. Interactive TUI | v1.0 | 3/3 | Complete | 2026-03-06 |
 | 4. Push Infrastructure | v1.1 | 0/3 | Not started | - |
-| 5. Push Command | v1.1 | 0/1 | Not started | - |
+| 5. Push Command | v1.1 | 1/2 | In progress | - |
 | 6. Selective Sync & Bidirectional | v1.1 | 0/2 | Not started | - |
