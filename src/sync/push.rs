@@ -126,22 +126,14 @@ pub fn compute_push_changeset(
             }
         }
 
-        // Compare serialized vCard with cached version
-        let cached = vcard_write::read_cached_vcard(crm_root, &source_id);
-        let serialized = if let Some(ref cached_text) = cached {
-            vcard_write::merge_contact_to_vcard(&cf.contact, cached_text)?
-        } else {
-            vcard_write::contact_to_vcard(&cf.contact)?
-        };
-
-        if let Some(ref cached_text) = cached {
-            if serialized == *cached_text {
-                // Unchanged -- skip
-                continue;
-            }
+        // Semantic comparison: check if CRM-relevant fields have changed since last snapshot
+        if !vcard_write::contact_fields_changed(crm_root, &source_id, &cf.contact) {
+            // Unchanged -- skip
+            continue;
         }
 
-        // Changed -- add to updates
+        // Changed -- read cached vCard for the update tuple
+        let cached = vcard_write::read_cached_vcard(crm_root, &source_id);
         updates.push((cf, cached.unwrap_or_default()));
     }
 
@@ -254,6 +246,11 @@ pub fn execute_push(
                     eprintln!("Warning: failed to cache vCard for {}: {}", cf.contact.name, e);
                 }
 
+                // Cache contact snapshot for future push comparison
+                if let Err(e) = vcard_write::cache_contact_snapshot(crm_root, &new_uuid, &cf.contact) {
+                    eprintln!("Warning: failed to cache contact snapshot for {}: {}", cf.contact.name, e);
+                }
+
                 result.created += 1;
                 result.details.push(PushDetail {
                     name: cf.contact.name.clone(),
@@ -330,6 +327,11 @@ pub fn execute_push(
                 // Update cache
                 if let Err(e) = vcard_write::write_cached_vcard(crm_root, &cf.contact.source_id, &vcard_text) {
                     eprintln!("Warning: failed to cache vCard for {}: {}", cf.contact.name, e);
+                }
+
+                // Update contact snapshot
+                if let Err(e) = vcard_write::cache_contact_snapshot(crm_root, &cf.contact.source_id, &cf.contact) {
+                    eprintln!("Warning: failed to cache contact snapshot for {}: {}", cf.contact.name, e);
                 }
 
                 result.updated += 1;
@@ -430,6 +432,11 @@ pub fn execute_push(
 
                     if let Err(e) = vcard_write::write_cached_vcard(crm_root, &cf.contact.source_id, &vcard_text) {
                         eprintln!("Warning: failed to cache vCard for {}: {}", cf.contact.name, e);
+                    }
+
+                    // Update contact snapshot after force-push
+                    if let Err(e) = vcard_write::cache_contact_snapshot(crm_root, &cf.contact.source_id, &cf.contact) {
+                        eprintln!("Warning: failed to cache contact snapshot for {}: {}", cf.contact.name, e);
                     }
 
                     result.updated += 1;
@@ -546,11 +553,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let contact = make_contact("Jane Smith", "icloud", "uid-123", "etag-abc", Some(Status::Active));
 
-        // Write a cached vCard using the merge path (which is what compute_push_changeset uses)
-        // First write an initial cache, then merge to get the canonical form
-        let initial_vcard = vcard_write::contact_to_vcard(&contact).unwrap();
-        let merged_vcard = vcard_write::merge_contact_to_vcard(&contact, &initial_vcard).unwrap();
-        vcard_write::write_cached_vcard(tmp.path(), "uid-123", &merged_vcard).unwrap();
+        // Write a contact snapshot (semantic comparison) -- this is what compute_push_changeset now uses
+        vcard_write::cache_contact_snapshot(tmp.path(), "uid-123", &contact).unwrap();
 
         let cf = make_contact_file(contact);
         let server_entries = vec![VCardEntry {
@@ -571,9 +575,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let contact = make_contact("Jane Smith", "icloud", "uid-123", "etag-abc", Some(Status::Active));
 
-        // Write a cached vCard that does NOT match current serialization
-        let old_vcard = "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Old Name\r\nN:Name;Old;;;\r\nUID:uid-123\r\nEND:VCARD\r\n";
-        vcard_write::write_cached_vcard(tmp.path(), "uid-123", old_vcard).unwrap();
+        // Write a snapshot with a different name to simulate local changes
+        let mut old_contact = contact.clone();
+        old_contact.name = "Old Name".to_string();
+        vcard_write::cache_contact_snapshot(tmp.path(), "uid-123", &old_contact).unwrap();
 
         let cf = make_contact_file(contact);
         let server_entries = vec![VCardEntry {
@@ -682,16 +687,16 @@ mod tests {
         // New contact (no source)
         let new_contact = make_contact_file(make_contact("New Guy", "", "", "", Some(Status::Active)));
 
-        // Unchanged icloud contact (matching cache - use merge path for canonical form)
+        // Unchanged icloud contact (matching snapshot)
         let unchanged = make_contact("Unchanged", "icloud", "uid-unch", "etag-1", Some(Status::Active));
-        let initial_vcard = vcard_write::contact_to_vcard(&unchanged).unwrap();
-        let merged_vcard = vcard_write::merge_contact_to_vcard(&unchanged, &initial_vcard).unwrap();
-        vcard_write::write_cached_vcard(tmp.path(), "uid-unch", &merged_vcard).unwrap();
+        vcard_write::cache_contact_snapshot(tmp.path(), "uid-unch", &unchanged).unwrap();
         let unchanged_cf = make_contact_file(unchanged);
 
-        // Modified icloud contact (different cache)
+        // Modified icloud contact (snapshot with different name)
         let modified = make_contact("Modified", "icloud", "uid-mod", "etag-2", Some(Status::Active));
-        vcard_write::write_cached_vcard(tmp.path(), "uid-mod", "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Old\r\nN:Old;;;\r\nUID:uid-mod\r\nEND:VCARD\r\n").unwrap();
+        let mut old_modified = modified.clone();
+        old_modified.name = "Old Name".to_string();
+        vcard_write::cache_contact_snapshot(tmp.path(), "uid-mod", &old_modified).unwrap();
         let modified_cf = make_contact_file(modified);
 
         // Archived contact

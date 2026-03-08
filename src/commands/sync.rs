@@ -274,6 +274,10 @@ pub fn run_sync(force: bool, dry_run: bool, fmt: &OutputFormat) -> Result<()> {
                 println!("[DRY RUN] Would update: {}", contact_name);
             } else {
                 update_existing_contact(existing, &mapped, &entry.etag)?;
+                // Cache contact snapshot for push comparison
+                if let Err(e) = vcard_write::cache_contact_snapshot(&crm_root, &uid, &mapped.contact) {
+                    eprintln!("Warning: failed to cache contact snapshot for {}: {}", contact_name, e);
+                }
             }
             updated_count += 1;
             synced.push(SyncedContact {
@@ -286,6 +290,10 @@ pub fn run_sync(force: bool, dry_run: bool, fmt: &OutputFormat) -> Result<()> {
                 println!("[DRY RUN] Would create: {}", contact_name);
             } else {
                 create_new_contact(&crm_root, &mapped, &uid, &entry.etag)?;
+                // Cache contact snapshot for push comparison
+                if let Err(e) = vcard_write::cache_contact_snapshot(&crm_root, &uid, &mapped.contact) {
+                    eprintln!("Warning: failed to cache contact snapshot for {}: {}", contact_name, e);
+                }
             }
             new_count += 1;
             synced.push(SyncedContact {

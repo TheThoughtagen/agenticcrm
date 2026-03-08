@@ -1,6 +1,8 @@
 use crate::models::Contact;
 use anyhow::Result;
 use calcard::vcard::{VCard, VCardEntry, VCardProperty, VCardValue};
+use chrono::NaiveDate;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Properties the CRM maps -- these get removed during merge and re-added from Contact data.
@@ -202,6 +204,69 @@ fn add_crm_entries(entries: &mut Vec<VCardEntry>, contact: &Contact) {
             VCardEntry::new(VCardProperty::Bday)
                 .with_value(VCardValue::Text(bday.format("%Y-%m-%d").to_string())),
         );
+    }
+}
+
+/// A snapshot of the CRM-relevant fields of a Contact for semantic comparison.
+/// Used to detect whether a contact has actually changed since last pull/push,
+/// avoiding false positives from vCard serialization differences.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ContactSnapshot {
+    pub name: String,
+    pub email: Vec<String>,
+    pub phone: Vec<String>,
+    pub company: String,
+    pub role: String,
+    pub website: String,
+    pub birthday: Option<NaiveDate>,
+}
+
+impl From<&Contact> for ContactSnapshot {
+    fn from(contact: &Contact) -> Self {
+        ContactSnapshot {
+            name: contact.name.clone(),
+            email: contact.email.clone(),
+            phone: contact.phone.clone(),
+            company: contact.company.clone(),
+            role: contact.role.clone(),
+            website: contact.website.clone(),
+            birthday: contact.birthday,
+        }
+    }
+}
+
+/// Returns the contact snapshot cache directory path.
+pub fn contact_snapshot_dir(crm_root: &Path) -> PathBuf {
+    crm_root.join(".sync").join("contact-snapshots")
+}
+
+/// Cache a Contact's CRM-relevant fields as a JSON snapshot for later comparison.
+pub fn cache_contact_snapshot(crm_root: &Path, source_id: &str, contact: &Contact) -> Result<()> {
+    let dir = contact_snapshot_dir(crm_root);
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(format!("{}.json", source_id));
+    let snapshot = ContactSnapshot::from(contact);
+    let json = serde_json::to_string_pretty(&snapshot)?;
+    std::fs::write(path, json)?;
+    Ok(())
+}
+
+/// Read a cached Contact snapshot. Returns None if file does not exist.
+pub fn read_contact_snapshot(crm_root: &Path, source_id: &str) -> Option<ContactSnapshot> {
+    let path = contact_snapshot_dir(crm_root).join(format!("{}.json", source_id));
+    let json = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&json).ok()
+}
+
+/// Check whether a Contact's CRM-relevant fields have changed since the last snapshot.
+/// Returns true if fields have changed or no snapshot exists (conservative: assume changed).
+pub fn contact_fields_changed(crm_root: &Path, source_id: &str, contact: &Contact) -> bool {
+    match read_contact_snapshot(crm_root, source_id) {
+        Some(cached) => {
+            let current = ContactSnapshot::from(contact);
+            current != cached
+        }
+        None => true, // No snapshot = assume changed (first push)
     }
 }
 
@@ -552,6 +617,95 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         // Should not error
         delete_cached_vcard(tmp.path(), "never-existed").unwrap();
+    }
+
+    // === ContactSnapshot and contact_fields_changed tests ===
+
+    #[test]
+    fn test_contact_snapshot_unchanged_returns_false() {
+        let tmp = tempfile::tempdir().unwrap();
+        let contact = test_contact();
+        cache_contact_snapshot(tmp.path(), "uid-abc-123", &contact).unwrap();
+        assert!(!contact_fields_changed(tmp.path(), "uid-abc-123", &contact));
+    }
+
+    #[test]
+    fn test_contact_fields_changed_name_differs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let contact = test_contact();
+        cache_contact_snapshot(tmp.path(), "uid-abc-123", &contact).unwrap();
+
+        let mut modified = contact;
+        modified.name = "Jane Doe".to_string();
+        assert!(contact_fields_changed(tmp.path(), "uid-abc-123", &modified));
+    }
+
+    #[test]
+    fn test_contact_fields_changed_email_differs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let contact = test_contact();
+        cache_contact_snapshot(tmp.path(), "uid-abc-123", &contact).unwrap();
+
+        let mut modified = contact;
+        modified.email = vec!["new@example.com".to_string()];
+        assert!(contact_fields_changed(tmp.path(), "uid-abc-123", &modified));
+    }
+
+    #[test]
+    fn test_contact_fields_changed_phone_company_role_website_birthday() {
+        let tmp = tempfile::tempdir().unwrap();
+        let contact = test_contact();
+
+        // Phone
+        cache_contact_snapshot(tmp.path(), "uid-1", &contact).unwrap();
+        let mut m = contact.clone();
+        m.phone = vec!["+1-999-9999".to_string()];
+        assert!(contact_fields_changed(tmp.path(), "uid-1", &m));
+
+        // Company
+        cache_contact_snapshot(tmp.path(), "uid-2", &contact).unwrap();
+        let mut m = contact.clone();
+        m.company = "New Corp".to_string();
+        assert!(contact_fields_changed(tmp.path(), "uid-2", &m));
+
+        // Role
+        cache_contact_snapshot(tmp.path(), "uid-3", &contact).unwrap();
+        let mut m = contact.clone();
+        m.role = "Manager".to_string();
+        assert!(contact_fields_changed(tmp.path(), "uid-3", &m));
+
+        // Website
+        cache_contact_snapshot(tmp.path(), "uid-4", &contact).unwrap();
+        let mut m = contact.clone();
+        m.website = "https://new.example.com".to_string();
+        assert!(contact_fields_changed(tmp.path(), "uid-4", &m));
+
+        // Birthday
+        cache_contact_snapshot(tmp.path(), "uid-5", &contact).unwrap();
+        let mut m = contact.clone();
+        m.birthday = Some(NaiveDate::from_ymd_opt(2000, 1, 1).unwrap());
+        assert!(contact_fields_changed(tmp.path(), "uid-5", &m));
+    }
+
+    #[test]
+    fn test_contact_fields_changed_no_snapshot_returns_true() {
+        let tmp = tempfile::tempdir().unwrap();
+        let contact = test_contact();
+        // No snapshot cached -- should assume changed
+        assert!(contact_fields_changed(tmp.path(), "uid-abc-123", &contact));
+    }
+
+    #[test]
+    fn test_contact_snapshot_cache_and_read_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let contact = test_contact();
+        cache_contact_snapshot(tmp.path(), "uid-abc-123", &contact).unwrap();
+        let snapshot = read_contact_snapshot(tmp.path(), "uid-abc-123");
+        assert!(snapshot.is_some());
+        let snap = snapshot.unwrap();
+        assert_eq!(snap.name, "Jane Smith");
+        assert_eq!(snap.email, vec!["jane@example.com", "jane@work.com"]);
+        assert_eq!(snap.company, "Acme Corp");
     }
 
     // === ensure_crlf tests ===
