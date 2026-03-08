@@ -66,11 +66,11 @@ Plans:
   3. User can override configured filters via `--tag` and `--status` CLI flags on sync commands
   4. With no filters configured, all contacts sync in both directions (default behavior preserved)
   5. User can run `acrm sync` to perform pull-then-push in a single command, and can still run `acrm sync pull` or `acrm sync push` individually
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 06-01: TBD
-- [ ] 06-02: TBD
+- [ ] 06-01-PLAN.md — SyncFilter module, toml config parsing, CLI flags, filter wiring in push/pull
+- [ ] 06-02-PLAN.md — Bidirectional sync: route bare `acrm sync` to pull-then-push
 
 ## Progress
 
