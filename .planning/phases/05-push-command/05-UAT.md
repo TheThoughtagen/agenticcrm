@@ -1,5 +1,5 @@
 ---
-status: complete
+status: diagnosed
 phase: 05-push-command
 source: 05-01-SUMMARY.md
 started: 2026-03-08T10:00:00Z
@@ -57,7 +57,15 @@ skipped: 4
   reason: "User reported: Dry-run shows ~985 contacts as 'would update' even though I didn't change them. The changeset detection flags contacts where vCard serialization differs from server format. Could wreck havoc if pushed. Need a verbose mode that shows what fields would actually change."
   severity: blocker
   test: 1
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "compute_push_changeset uses exact string comparison (serialized == cached_text) between merge_contact_to_vcard output and raw cached server vCard. Three mechanisms cause false diffs: (1) merge reorders properties by stripping CRM-mapped props and appending at end, (2) add_crm_entries drops TYPE/LABEL parameters from EMAIL/TEL, (3) NOTE is in CRM_MAPPED_PROPERTIES (removed from cache) but never re-added by add_crm_entries — silently lost."
+  artifacts:
+    - path: "src/sync/push.rs"
+      issue: "compute_push_changeset line 138 uses string == comparison"
+    - path: "src/sync/vcard_write.rs"
+      issue: "merge_contact_to_vcard reorders props; add_crm_entries drops params; NOTE silently dropped"
+  missing:
+    - "Replace string comparison with semantic Contact-to-Contact diff"
+    - "Preserve vCard property parameters (TYPE, LABEL) during merge"
+    - "Add NOTE to add_crm_entries output"
+    - "Add verbose/diff mode showing which fields changed per contact"
+  debug_session: ".planning/debug/push-changeset-false-updates.md"
