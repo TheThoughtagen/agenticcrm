@@ -24,10 +24,10 @@ Requirements for two-way iCloud sync milestone. Each maps to roadmap phases.
 
 ### Selective Sync
 
-- [ ] **FILT-01**: User can configure push tag/status filters in sync config
-- [ ] **FILT-02**: User can configure pull tag/status filters in sync config
-- [ ] **FILT-03**: User can override filters via `--tag` and `--status` CLI flags
-- [ ] **FILT-04**: Default (no filters) syncs everything
+- [x] **FILT-01**: User can configure push tag/status filters in sync config
+- [x] **FILT-02**: User can configure pull tag/status filters in sync config
+- [x] **FILT-03**: User can override filters via `--tag` and `--status` CLI flags
+- [x] **FILT-04**: Default (no filters) syncs everything
 
 ### Bidirectional Sync
 
@@ -87,10 +87,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CMD-02 | Phase 5 | Complete |
 | CMD-03 | Phase 5 | Complete |
 | CMD-04 | Phase 5 | Complete |
-| FILT-01 | Phase 6 | Pending |
-| FILT-02 | Phase 6 | Pending |
-| FILT-03 | Phase 6 | Pending |
-| FILT-04 | Phase 6 | Pending |
+| FILT-01 | Phase 6 | Complete |
+| FILT-02 | Phase 6 | Complete |
+| FILT-03 | Phase 6 | Complete |
+| FILT-04 | Phase 6 | Complete |
 | BIDI-01 | Phase 6 | Pending |
 | BIDI-02 | Phase 6 | Pending |
 
