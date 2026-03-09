@@ -3,6 +3,12 @@ name = "acrm"
 version = "0.1.0"
 edition = "2024"
 description = "Agent-friendly personal CRM — CLI & TUI"
+license = "MIT"
+repository = "https://github.com/pmannion/agenticcrm"
+readme = "README.md"
+keywords = ["crm", "contacts", "mcp", "cli", "carddav"]
+categories = ["command-line-utilities"]
+rust-version = "1.85"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
