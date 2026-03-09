@@ -1,16 +1,24 @@
 ---
 phase: 10-linkedin-import
-verified: 2026-03-09T19:00:00Z
+verified: 2026-03-09T21:00:00Z
 status: passed
-score: 4/4 success criteria verified
+score: 4/4 must-haves verified
+re_verification:
+  previous_status: passed
+  previous_score: 4/4
+  gaps_closed:
+    - "Dry-run mode creates skeleton files on disk (fixed in plan 10-03)"
+    - "No-change re-imports not counted in skipped (fixed in plan 10-03)"
+  gaps_remaining: []
+  regressions: []
 ---
 
 # Phase 10: LinkedIn Import Verification Report
 
 **Phase Goal:** Users can import LinkedIn connection data into the CRM with intelligent deduplication and change detection
-**Verified:** 2026-03-09
+**Verified:** 2026-03-09T21:00:00Z
 **Status:** passed
-**Re-verification:** No -- initial verification
+**Re-verification:** Yes -- independent re-verification after UAT gap closure (plan 10-03)
 
 ## Goal Achievement
 
@@ -18,10 +26,10 @@ score: 4/4 success criteria verified
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | User can run `acrm import linkedin <file>` and contacts from the CSV are created in the CRM | VERIFIED | `src/main.rs:287-290` dispatches `Commands::Import { source: ImportSource::Linkedin }` to `commands::import::run_import_linkedin()`, which calls `ops::import::import_linkedin()`. Test `test_new_contact_is_created` confirms file written with all fields. |
-| 2 | Re-importing the same CSV does not create duplicates (matched by name and email) | VERIFIED | `find_match()` at line 115 performs exact case-insensitive name match OR email match. Tests: `test_existing_contact_matched_by_name_gets_fill_empty_updates`, `test_existing_contact_matched_by_email`, `test_case_insensitive_name_matching`, `test_empty_email_falls_back_to_name_matching`. |
-| 3 | Re-importing an updated CSV detects and applies only changed fields, leaving manually-edited CRM fields intact | VERIFIED | Fill-empty-only logic at lines 286-384 checks `cf.contact.<field>.is_empty()` before updating. Non-empty fields produce `DetectedChange` entries. Test `test_non_empty_fields_never_overwritten_detected_changes_reported` verifies "OldCo" and "Director" preserved, changes reported. |
-| 4 | All available LinkedIn CSV columns (first name, last name, email, company, position, connected on) are mapped to the contact schema | VERIFIED | `LinkedInRow` struct (line 10-24) deserializes all 6 columns. `import_linkedin()` maps: first+last->name, company->company, position->role, email->email array, connected_on->met_date (via `parse_connected_on` with 5 date formats). |
+| 1 | User can run `acrm import linkedin <file>` and contacts from CSV are created in CRM | VERIFIED | `src/main.rs:287-289` dispatches `Commands::Import { source: ImportSource::Linkedin }` to `commands::import::run_import_linkedin()`. `src/commands/import.rs:110` calls `ops::import::import_linkedin()`. Test `test_new_contact_is_created` confirms file written with all 7 fields (company, role, source, relationship, email, met_date, tags). |
+| 2 | Re-importing the same CSV does not create duplicates (matched by name and email) | VERIFIED | `find_match()` at line 115 performs case-insensitive name match OR email match. Ambiguous (2+) matches safely skipped. Test `test_reimport_no_changes_counted_as_skipped` confirms re-import produces `skipped.len()==1` with reason "no changes needed", zero created/updated. |
+| 3 | Re-importing an updated CSV detects and applies only changed fields, leaving manually-edited CRM fields intact | VERIFIED | Fill-empty-only logic (lines 306-403) checks `cf.contact.<field>.is_empty()` before updating. Non-empty fields produce `DetectedChange` entries. Test `test_non_empty_fields_never_overwritten_detected_changes_reported` verifies "OldCo"/"Director" preserved while changes reported. |
+| 4 | All available LinkedIn CSV columns mapped to contact schema | VERIFIED | `LinkedInRow` struct (lines 10-24) deserializes all 6 columns via serde rename. `import_linkedin()` maps: first+last to name, company to company, position to role, email to email array, connected_on to met_date (via `parse_connected_on` with 5 date formats). |
 
 **Score:** 4/4 truths verified
 
@@ -29,34 +37,34 @@ score: 4/4 success criteria verified
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `src/ops/import.rs` | CSV parsing, dedup matching, merge logic, import_linkedin() | VERIFIED | 419 lines of implementation + 813 lines of tests (16 tests). Exports: import_linkedin, ImportResult, ImportChange, ImportSkip, DetectedChange, LinkedInRow. |
-| `src/ops/mod.rs` | Module registration with `pub mod import` | VERIFIED | Contains `pub mod import;` |
+| `src/ops/import.rs` | CSV parsing, dedup, merge logic, import_linkedin() | VERIFIED | 443 lines implementation + 872 lines tests (17 tests). Exports ImportResult, ImportChange, ImportSkip, DetectedChange, LinkedInRow. |
+| `src/ops/mod.rs` | Module registration | VERIFIED | Contains `pub mod import;` |
 | `Cargo.toml` | csv dependency | VERIFIED | Contains `csv = "1.4.0"` |
-| `src/commands/import.rs` | CLI handler with Display impl for ImportResult | VERIFIED | 114 lines. `run_import_linkedin()` handler + `Display for ImportResult` with created/updated/detected-changes/skipped/warnings sections. |
-| `src/main.rs` | Import subcommand with ImportSource::LinkedIn variant | VERIFIED | `Commands::Import` at line 157, `ImportSource::Linkedin` enum at line 221, match arm at line 287. |
+| `src/commands/import.rs` | CLI handler with Display impl | VERIFIED | 114 lines. `run_import_linkedin()` handler + `Display for ImportResult` with created/updated/detected-changes/skipped/warnings sections. |
+| `src/main.rs` | Import subcommand with ImportSource::Linkedin variant | VERIFIED | `Commands::Import` at line 157, `ImportSource::Linkedin` at line 222, match arm at line 287-289. |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|----|-----|--------|---------|
-| `src/ops/import.rs` | `store::load_all_contacts` | Loading existing contacts for dedup | WIRED | Line 166: `store::load_all_contacts(root)` |
-| `src/ops/import.rs` | `store::write_contact` | Writing new contacts | WIRED | Uses `ops::contact::add()` at line 192 for creation, then `std::fs::write` at line 270 for post-processing. Also line 398 for updates. |
-| `src/ops/import.rs` | `frontmatter::update_field` | Fill-empty-only field updates | WIRED | Used at lines 202, 213, 222, 228, 247, 291, 310, 334, 354 for company, role, source, relationship, met_date updates |
-| `src/ops/import.rs` | `frontmatter::update_array_field` | Merging array fields (email, tags) | WIRED | Used at lines 234, 253, 372, 382 for email and tags merge |
-| `src/commands/import.rs` | `ops::import::import_linkedin` | Calling ops function | WIRED | Line 110: `ops::import::import_linkedin(&root, file, dry_run)` |
-| `src/main.rs` | `commands::import::run_import_linkedin` | Command dispatch | WIRED | Line 289: `commands::import::run_import_linkedin(&file, dry_run, fmt)` |
-| `src/commands/import.rs` | `format::output` | Output formatting (human vs json) | WIRED | Line 111: `format::output(&result, fmt)?;` |
+| `src/main.rs` | `commands::import::run_import_linkedin` | Command dispatch | WIRED | Line 289 calls with `&file, dry_run, fmt` |
+| `src/commands/import.rs` | `ops::import::import_linkedin` | Handler to ops | WIRED | Line 110 calls with `&root, file, dry_run` |
+| `src/commands/import.rs` | `format::output` | Output formatting | WIRED | Line 111 calls `format::output(&result, fmt)` |
+| `src/ops/import.rs` | `store::load_all_contacts` | Load existing for dedup | WIRED | Line 166 |
+| `src/ops/import.rs` | `super::contact::add` | Create new contacts | WIRED | Line 213, guarded by `if !dry_run` (fix confirmed) |
+| `src/ops/import.rs` | `frontmatter::update_field` | Scalar field updates | WIRED | Lines 222, 231, 239, 243, 257, 309, 329, 353, 370 |
+| `src/ops/import.rs` | `frontmatter::update_array_field` | Array field merge | WIRED | Lines 248, 265, 390, 400 |
 
 ### Requirements Coverage
 
 | Requirement | Source Plan | Description | Status | Evidence |
 |-------------|------------|-------------|--------|----------|
-| LNKD-01 | 10-01, 10-02 | User can import LinkedIn CSV via `acrm import linkedin <file>` | SATISFIED | Full CLI wiring from main.rs -> commands/import.rs -> ops/import.rs. 16 passing tests. |
-| LNKD-02 | 10-01 | Import deduplicates against existing contacts by name and email | SATISFIED | `find_match()` with exact case-insensitive name OR email matching. Ambiguous matches (2+) skipped. Tests verify all dedup paths. |
-| LNKD-03 | 10-01 | Re-import detects changes and updates only modified fields | SATISFIED | Fill-empty-only merge for scalar fields. DetectedChange reporting for conflicts. Array merge with dedup for email/tags. |
-| LNKD-04 | 10-01 | Import maps all available LinkedIn CSV fields to contact schema | SATISFIED | LinkedInRow serde struct maps all 6 CSV columns. import_linkedin() maps to: name, company, role, email, met_date, source, relationship, tags. |
+| LNKD-01 | 10-01, 10-02, 10-03 | User can import LinkedIn CSV via `acrm import linkedin <file>` | SATISFIED | Full CLI wiring from main.rs through commands/import.rs to ops/import.rs. 17 passing tests. Dry-run confirmed safe (no disk writes). |
+| LNKD-02 | 10-01, 10-03 | Import deduplicates against existing contacts by name and email | SATISFIED | `find_match()` with case-insensitive name OR email matching. No-change matches now correctly counted as skipped. |
+| LNKD-03 | 10-01 | Re-import detects changes and updates only modified fields | SATISFIED | Fill-empty-only merge for scalars. DetectedChange reporting for conflicts. Array merge with dedup for email/tags. |
+| LNKD-04 | 10-01 | Import maps all available LinkedIn CSV fields to contact schema | SATISFIED | LinkedInRow serde struct maps all 6 CSV columns. Maps to: name, company, role, email, met_date, source, relationship, tags. |
 
-No orphaned requirements found -- all LNKD-01 through LNKD-04 are accounted for in plans and verified.
+No orphaned requirements found -- all LNKD-01 through LNKD-04 accounted for in plans and verified.
 
 ### Anti-Patterns Found
 
@@ -66,11 +74,9 @@ No orphaned requirements found -- all LNKD-01 through LNKD-04 are accounted for 
 
 No TODOs, FIXMEs, placeholders, or stub implementations found in phase files.
 
-Note: `cargo check` produces 1 warning (unused variable) unrelated to this phase.
-
 ### Test Results
 
-All 16 import-specific tests pass:
+All 17 import tests pass (`cargo test ops::import::tests`):
 
 - test_new_contact_is_created
 - test_existing_contact_matched_by_name_gets_fill_empty_updates
@@ -87,7 +93,18 @@ All 16 import-specific tests pass:
 - test_malformed_rows_produce_warnings
 - test_case_insensitive_name_matching
 - test_parse_connected_on_formats
+- test_reimport_no_changes_counted_as_skipped
 - test_summary_counts
+
+### UAT Gap Closure Confirmation
+
+The previous verification (pre-UAT) reported status passed but two UAT-discovered bugs were subsequently found and fixed in plan 10-03:
+
+1. **Dry-run file creation (major):** `ops::contact::add()` was called before `dry_run` guard, creating skeleton files on disk. **Fixed:** The `add()` call is now inside `if !dry_run` (line 211). The else branch predicts the path via string formatting without disk I/O (lines 283-290). Test `test_dry_run_returns_result_but_no_files_written` asserts `!root.join("contacts/jane-doe.md").exists()` (line 1028).
+
+2. **No-change matches not counted (minor):** Re-imported contacts with no field changes silently dropped without appearing in any result category. **Fixed:** An `else` branch at line 425 pushes to `skipped` with reason "no changes needed". Tests `test_reimport_no_changes_counted_as_skipped`, `test_email_dedup_case_insensitive`, and `test_linkedin_tag_deduped_if_already_present` all verify this.
+
+Both fixes confirmed in source code and passing tests.
 
 ### Human Verification Required
 
@@ -95,25 +112,19 @@ All 16 import-specific tests pass:
 
 **Test:** Export Connections.csv from LinkedIn, run `acrm import linkedin Connections.csv --dry-run`, then without --dry-run
 **Expected:** Contacts created with correct field mapping, no errors on real-world CSV format variations
-**Why human:** LinkedIn CSV format may have edge cases (Unicode names, special characters, missing columns) not covered by unit tests
+**Why human:** LinkedIn CSV format may have edge cases (Unicode names, special characters) not covered by unit tests
 
-### 2. Re-import idempotency
+### 2. Re-import idempotency with skipped reporting
 
 **Test:** Run `acrm import linkedin Connections.csv` twice
-**Expected:** Second run shows 0 created, contacts matched by name/email, only detected changes reported
-**Why human:** Verifies the full round-trip through file system serialization/deserialization maintains matching
-
-### 3. JSON output format
-
-**Test:** Run `acrm --format json import linkedin Connections.csv --dry-run`
-**Expected:** Valid JSON output with ImportResult structure
-**Why human:** Verify JSON serialization renders correctly for downstream tooling
+**Expected:** Second run shows 0 created, all contacts counted as skipped with "no changes needed"
+**Why human:** Verifies full round-trip through file system serialization maintains matching
 
 ### Gaps Summary
 
-No gaps found. All 4 success criteria verified, all 4 requirements satisfied, all artifacts exist and are substantive, all key links wired, all 16 tests pass. Phase goal achieved.
+No gaps found. All 4 success criteria verified, all 4 requirements satisfied, all artifacts substantive and wired, all 17 tests pass, both UAT-reported bugs confirmed fixed.
 
 ---
 
-_Verified: 2026-03-09_
+_Verified: 2026-03-09T21:00:00Z_
 _Verifier: Claude (gsd-verifier)_
