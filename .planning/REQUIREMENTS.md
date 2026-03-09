@@ -67,9 +67,9 @@ Requirements for v1.2 milestone (MCP, Bulk Ops & LinkedIn). Each maps to roadmap
 - [x] **BULK-02**: User can bulk update fields on matched contacts (`--set field=value`)
 - [x] **BULK-03**: User can bulk delete or archive matched contacts
 - [x] **BULK-04**: User can bulk add/remove tags on matched contacts
-- [ ] **BULK-05**: Bulk operations show preview and require confirmation (or `--yes` to skip)
-- [ ] **BULK-06**: All bulk commands support `--dry-run` to preview without changes
-- [ ] **BULK-07**: JSON pipe input supported (`acrm search --json | acrm bulk-update --stdin`)
+- [x] **BULK-05**: Bulk operations show preview and require confirmation (or `--yes` to skip)
+- [x] **BULK-06**: All bulk commands support `--dry-run` to preview without changes
+- [x] **BULK-07**: JSON pipe input supported (`acrm search --json | acrm bulk-update --stdin`)
 
 ### LinkedIn Import
 
@@ -142,9 +142,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BULK-02 | Phase 8 | Complete |
 | BULK-03 | Phase 8 | Complete |
 | BULK-04 | Phase 8 | Complete |
-| BULK-05 | Phase 8 | Pending |
-| BULK-06 | Phase 8 | Pending |
-| BULK-07 | Phase 8 | Pending |
+| BULK-05 | Phase 8 | Complete |
+| BULK-06 | Phase 8 | Complete |
+| BULK-07 | Phase 8 | Complete |
 | LNKD-01 | Phase 10 | Pending |
 | LNKD-02 | Phase 10 | Pending |
 | LNKD-03 | Phase 10 | Pending |
