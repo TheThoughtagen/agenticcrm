@@ -228,14 +228,7 @@ fn main() -> anyhow::Result<()> {
                         status,
                     );
 
-                    // Bidirectional: pull then push
-                    println!("Starting bidirectional sync...\n");
-                    println!("--- Pull ---");
-                    commands::sync::run_sync(force, dry_run, &pull_filter, fmt)?;
-                    println!("\n--- Push ---");
-                    commands::sync::run_push(force, dry_run, &push_filter, fmt)?;
-                    println!("\nBidirectional sync complete.");
-                    Ok(())
+                    commands::sync::run_bidirectional(force, dry_run, &pull_filter, &push_filter, fmt)
                 }
             }
         }

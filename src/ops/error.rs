@@ -11,6 +11,9 @@ pub enum OpsError {
     #[error("validation failed: {0}")]
     ValidationFailed(String),
 
+    #[error("sync error: {0}")]
+    SyncError(String),
+
     #[error("{0}")]
     Io(#[from] std::io::Error),
 
