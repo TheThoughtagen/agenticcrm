@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Your contacts and relationship history are always accessible, portable, and under your control
-**Current focus:** Phase 8 - Bulk Operations & Query Engine (v1.2)
+**Current focus:** Phase 9 - MCP Server (v1.2)
 
 ## Current Position
 
-Phase: 8 of 10 (Bulk Operations & Query Engine)
-Plan: 2 of 2 complete
-Status: Phase Complete
-Last activity: 2026-03-09 -- Completed 08-02 (Bulk CLI wiring with preview/confirm/dry-run)
+Phase: 9 of 10 (MCP Server)
+Plan: 1 of 2 complete
+Status: In Progress
+Last activity: 2026-03-09 -- Completed 09-01 (MCP server foundation with read-only tools)
 
-Progress: [########░░] 80% (8/10 phases complete across all milestones)
+Progress: [########░░] 85% (8.5/10 phases complete across all milestones)
 
 ## Performance Metrics
 
@@ -48,6 +48,7 @@ Progress: [########░░] 80% (8/10 phases complete across all milestones)
 | 6. Selective Sync | 2 | ~8m | ~4m |
 | 7. Operations Layer | 2/2 | 14m | 7m |
 | 8. Bulk Ops & Query Engine | 2/2 | 9m | ~5m |
+| 9. MCP Server | 1/2 | 6m | 6m |
 
 ## Accumulated Context
 
@@ -73,6 +74,9 @@ Recent decisions affecting current work:
 - v1.2: Bulk ops use dry_run bool pattern, returning BulkResult regardless
 - v1.2: Bulk CLI preview truncates at 20 contacts with "...and N more"
 - v1.2: Stdin JSON pipe pattern for Unix composability (search --format json | bulk-update --stdin)
+- v1.2: ErrorData used directly (not McpError alias) for rmcp 1.1 API compatibility
+- v1.2: tool_router with pub visibility for cross-module access
+- v1.2: spawn_blocking bridge pattern proven with three read-only MCP tools
 
 ### Pending Todos
 
@@ -87,5 +91,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 08-02-PLAN.md (Bulk CLI wiring) -- Phase 08 complete
-Resume file: .planning/phases/08-bulk-operations-query-engine/08-02-SUMMARY.md
+Stopped at: Completed 09-01-PLAN.md (MCP server foundation with read-only tools)
+Resume file: .planning/phases/09-mcp-server/09-01-SUMMARY.md
