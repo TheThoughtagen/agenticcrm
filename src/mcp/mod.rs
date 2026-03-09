@@ -4,7 +4,8 @@ pub mod tools;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use rmcp::model::McpError;
+use rmcp::handler::server::router::tool::ToolRouter;
+use rmcp::{ErrorData, ServiceExt};
 use tokio::sync::Mutex;
 
 use crate::ops::OpsError;
@@ -15,6 +16,7 @@ pub struct CrmServer {
     pub root: PathBuf,
     pub write_lock: Arc<Mutex<()>>,
     pub allow_sync: bool,
+    pub tool_router: ToolRouter<Self>,
 }
 
 impl CrmServer {
@@ -23,6 +25,7 @@ impl CrmServer {
             root,
             write_lock: Arc::new(Mutex::new(())),
             allow_sync,
+            tool_router: Self::tool_router(),
         }
     }
 }
@@ -41,29 +44,29 @@ pub async fn serve_stdio(server: CrmServer) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Map OpsError to McpError for MCP tool responses.
-pub fn ops_err_to_mcp(e: OpsError) -> McpError {
+/// Map OpsError to rmcp ErrorData for MCP tool responses.
+pub fn ops_err_to_mcp(e: OpsError) -> ErrorData {
     match e {
-        OpsError::NotFound(msg) => McpError::internal_error(
+        OpsError::NotFound(msg) => ErrorData::internal_error(
             format!("Contact not found: {msg}"),
             None,
         ),
-        OpsError::AmbiguousMatch { query, matches } => McpError::invalid_params(
+        OpsError::AmbiguousMatch { query, matches } => ErrorData::invalid_params(
             format!("Multiple contacts match '{query}': {matches}"),
             None,
         ),
-        OpsError::ValidationFailed(msg) => McpError::invalid_params(
+        OpsError::ValidationFailed(msg) => ErrorData::invalid_params(
             format!("Validation failed: {msg}"),
             None,
         ),
-        OpsError::SyncError(msg) => McpError::internal_error(
+        OpsError::SyncError(msg) => ErrorData::internal_error(
             format!("Sync error: {msg}"),
             None,
         ),
-        OpsError::Io(e) => McpError::internal_error(
+        OpsError::Io(e) => ErrorData::internal_error(
             format!("IO error: {e}"),
             None,
         ),
-        OpsError::Internal(msg) => McpError::internal_error(msg, None),
+        OpsError::Internal(msg) => ErrorData::internal_error(msg, None),
     }
 }

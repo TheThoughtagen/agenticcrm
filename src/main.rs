@@ -1,6 +1,7 @@
 mod commands;
 mod format;
 mod frontmatter;
+mod mcp;
 mod models;
 mod ops;
 pub mod query;
@@ -140,6 +141,18 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Start MCP server for AI agent integration
+    Serve {
+        /// Use HTTP transport instead of stdio
+        #[arg(long)]
+        http: bool,
+        /// HTTP port (default: 3000)
+        #[arg(long, default_value = "3000")]
+        port: u16,
+        /// Allow sync operations (disabled by default for safety)
+        #[arg(long)]
+        allow_sync: bool,
+    },
     /// Show contacts due for follow-up
     Due,
     /// Launch interactive TUI
@@ -238,6 +251,16 @@ fn main() -> anyhow::Result<()> {
             yes,
             dry_run,
         } => commands::bulk::run_bulk_update(stdin, &sets, delete, archive, &add_tags, &remove_tags, yes, dry_run, fmt),
+        Commands::Serve {
+            http: _http,
+            port: _port,
+            allow_sync,
+        } => {
+            let root = store::find_crm_root()?;
+            let server = mcp::CrmServer::new(root, allow_sync);
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(mcp::serve_stdio(server))
+        }
         Commands::Due => commands::due::run(fmt),
         Commands::Tui => tui::run(),
         Commands::Sync {
