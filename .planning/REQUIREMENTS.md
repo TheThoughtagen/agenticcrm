@@ -49,16 +49,16 @@ Requirements for v1.2 milestone (MCP, Bulk Ops & LinkedIn). Each maps to roadmap
 ### MCP Server
 
 - [x] **MCP-01**: MCP server runs via `acrm serve` with stdio transport
-- [ ] **MCP-02**: MCP server supports Streamable HTTP transport for remote access
+- [x] **MCP-02**: MCP server supports Streamable HTTP transport for remote access
 - [x] **MCP-03**: Agent can search contacts by name, tag, status, or free text via MCP tool
 - [x] **MCP-04**: Agent can view full contact details via MCP tool
-- [ ] **MCP-05**: Agent can add a new contact via MCP tool
-- [ ] **MCP-06**: Agent can edit contact fields via MCP tool
-- [ ] **MCP-07**: Agent can log an interaction on a contact via MCP tool
-- [ ] **MCP-08**: Agent can delete or archive a contact via MCP tool
+- [x] **MCP-05**: Agent can add a new contact via MCP tool
+- [x] **MCP-06**: Agent can edit contact fields via MCP tool
+- [x] **MCP-07**: Agent can log an interaction on a contact via MCP tool
+- [x] **MCP-08**: Agent can delete or archive a contact via MCP tool
 - [x] **MCP-09**: Agent can list contacts due for follow-up via MCP tool
-- [ ] **MCP-10**: Agent can trigger sync push/pull via MCP tool (configurable permission)
-- [ ] **MCP-11**: Contacts exposed as MCP resources with `contact://` URIs
+- [x] **MCP-10**: Agent can trigger sync push/pull via MCP tool (configurable permission)
+- [x] **MCP-11**: Contacts exposed as MCP resources with `contact://` URIs
 - [x] **MCP-12**: Concurrent MCP requests don't corrupt contact files
 
 ### Bulk Operations
@@ -127,16 +127,16 @@ Which phases cover which requirements. Updated during roadmap creation.
 | OPS-01 | Phase 7 | Complete |
 | OPS-02 | Phase 7 | Complete |
 | MCP-01 | Phase 9 | Complete |
-| MCP-02 | Phase 9 | Pending |
+| MCP-02 | Phase 9 | Complete |
 | MCP-03 | Phase 9 | Complete |
 | MCP-04 | Phase 9 | Complete |
-| MCP-05 | Phase 9 | Pending |
-| MCP-06 | Phase 9 | Pending |
-| MCP-07 | Phase 9 | Pending |
-| MCP-08 | Phase 9 | Pending |
+| MCP-05 | Phase 9 | Complete |
+| MCP-06 | Phase 9 | Complete |
+| MCP-07 | Phase 9 | Complete |
+| MCP-08 | Phase 9 | Complete |
 | MCP-09 | Phase 9 | Complete |
-| MCP-10 | Phase 9 | Pending |
-| MCP-11 | Phase 9 | Pending |
+| MCP-10 | Phase 9 | Complete |
+| MCP-11 | Phase 9 | Complete |
 | MCP-12 | Phase 9 | Complete |
 | BULK-01 | Phase 8 | Complete |
 | BULK-02 | Phase 8 | Complete |

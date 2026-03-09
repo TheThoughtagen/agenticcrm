@@ -30,7 +30,7 @@
 
 - [x] **Phase 7: Operations Layer** - Extract business logic from CLI into shared ops module (completed 2026-03-09)
 - [ ] **Phase 8: Bulk Operations & Query Engine** - Query syntax, bulk edit/delete/archive/tag, dry-run, JSON pipe
-- [ ] **Phase 9: MCP Server** - `acrm serve` with stdio and Streamable HTTP transports, full CRM tools for AI agents
+- [x] **Phase 9: MCP Server** - `acrm serve` with stdio and Streamable HTTP transports, full CRM tools for AI agents (completed 2026-03-09)
 - [ ] **Phase 10: LinkedIn Import** - Rust-native CSV import with dedup, change detection, and field mapping
 
 ## Phase Details
@@ -110,5 +110,5 @@ Plans:
 | 6. Selective Sync & Bidirectional | v1.1 | 2/2 | Complete | 2026-03-08 |
 | 7. Operations Layer | 2/2 | Complete   | 2026-03-09 | - |
 | 8. Bulk Operations & Query Engine | v1.2 | 1/2 | In progress | - |
-| 9. MCP Server | v1.2 | 0/2 | Not started | - |
+| 9. MCP Server | 2/2 | Complete   | 2026-03-09 | - |
 | 10. LinkedIn Import | v1.2 | 0/? | Not started | - |

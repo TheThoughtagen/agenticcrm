@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-03-08)
 ## Current Position
 
 Phase: 9 of 10 (MCP Server)
-Plan: 1 of 2 complete
-Status: In Progress
-Last activity: 2026-03-09 -- Completed 09-01 (MCP server foundation with read-only tools)
+Plan: 2 of 2 complete
+Status: Phase Complete
+Last activity: 2026-03-09 -- Completed 09-02 (MCP write tools, resources, HTTP transport)
 
-Progress: [########░░] 85% (8.5/10 phases complete across all milestones)
+Progress: [#########░] 90% (9/10 phases complete across all milestones)
 
 ## Performance Metrics
 
@@ -48,7 +48,7 @@ Progress: [########░░] 85% (8.5/10 phases complete across all milestones)
 | 6. Selective Sync | 2 | ~8m | ~4m |
 | 7. Operations Layer | 2/2 | 14m | 7m |
 | 8. Bulk Ops & Query Engine | 2/2 | 9m | ~5m |
-| 9. MCP Server | 1/2 | 6m | 6m |
+| 9. MCP Server | 2/2 | 13m | ~7m |
 
 ## Accumulated Context
 
@@ -77,6 +77,10 @@ Recent decisions affecting current work:
 - v1.2: ErrorData used directly (not McpError alias) for rmcp 1.1 API compatibility
 - v1.2: tool_router with pub visibility for cross-module access
 - v1.2: spawn_blocking bridge pattern proven with three read-only MCP tools
+- v1.2: Write lock pattern: acquire write_lock before spawn_blocking for all mutation tools
+- v1.2: contact:// URI scheme for MCP resource browsing
+- v1.2: StreamableHttpService with LocalSessionManager for HTTP transport
+- v1.2: CallToolResult::error for sync-disabled message (tool remains callable)
 
 ### Pending Todos
 
@@ -91,5 +95,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 09-01-PLAN.md (MCP server foundation with read-only tools)
-Resume file: .planning/phases/09-mcp-server/09-01-SUMMARY.md
+Stopped at: Completed 09-02-PLAN.md (MCP write tools, resources, HTTP transport)
+Resume file: .planning/phases/09-mcp-server/09-02-SUMMARY.md
