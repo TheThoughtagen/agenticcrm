@@ -25,13 +25,13 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ### From GitHub
 
 ```bash
-cargo install --git https://github.com/pmannion/agenticcrm.git
+cargo install --git https://github.com/TheThoughtagen/agenticcrm.git
 ```
 
 ### From source
 
 ```bash
-git clone https://github.com/pmannion/agenticcrm.git
+git clone https://github.com/TheThoughtagen/agenticcrm.git
 cd agenticcrm
 cargo build --release
 cp target/release/acrm ~/.local/bin/  # or anywhere on your PATH

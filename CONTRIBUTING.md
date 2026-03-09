@@ -11,7 +11,7 @@ Thanks for your interest in contributing to AgenticCRM. This guide covers everyt
 ## Getting Started
 
 ```bash
-git clone https://github.com/pmannion/agenticcrm.git
+git clone https://github.com/TheThoughtagen/agenticcrm.git
 cd agenticcrm
 cargo build
 cargo test
