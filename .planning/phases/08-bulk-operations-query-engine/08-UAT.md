@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: complete
 phase: 08-bulk-operations-query-engine
 source: 08-01-SUMMARY.md, 08-02-SUMMARY.md
 started: 2026-03-09T15:00:00Z
-updated: 2026-03-09T15:10:00Z
+updated: 2026-03-09T16:00:00Z
 ---
 
 ## Current Test
@@ -62,15 +62,14 @@ result: pass
 
 ### 13. Preview truncation for large result sets
 expected: When bulk matching many contacts (e.g., `acrm bulk status=active`), the preview shows up to 20 contacts and indicates "...and N more" if there are additional matches.
-result: issue
-reported: "query-only mode (no action flags) dumps all 985+ contacts without any truncation - no '...and N more' limit applied"
-severity: minor
+result: pass
+note: Previously reported as issue; fix verified — truncation at 20 with "...and 965 more" working correctly
 
 ## Summary
 
 total: 13
-passed: 12
-issues: 1
+passed: 13
+issues: 0
 pending: 0
 skipped: 0
 
