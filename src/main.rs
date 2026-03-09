@@ -153,6 +153,11 @@ enum Commands {
         #[arg(long)]
         allow_sync: bool,
     },
+    /// Import contacts from external sources
+    Import {
+        #[command(subcommand)]
+        source: ImportSource,
+    },
     /// Show contacts due for follow-up
     Due,
     /// Launch interactive TUI
@@ -212,6 +217,18 @@ enum SyncAction {
     },
 }
 
+#[derive(Subcommand)]
+enum ImportSource {
+    /// Import from LinkedIn Connections.csv
+    Linkedin {
+        /// Path to LinkedIn Connections.csv file
+        file: std::path::PathBuf,
+        /// Preview changes without writing
+        #[arg(long)]
+        dry_run: bool,
+    },
+}
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let fmt = &cli.format;
@@ -267,6 +284,11 @@ fn main() -> anyhow::Result<()> {
                 }
             })
         }
+        Commands::Import { source } => match source {
+            ImportSource::Linkedin { file, dry_run } => {
+                commands::import::run_import_linkedin(&file, dry_run, fmt)
+            }
+        },
         Commands::Due => commands::due::run(fmt),
         Commands::Tui => tui::run(),
         Commands::Sync {
