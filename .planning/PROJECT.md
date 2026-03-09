@@ -34,22 +34,19 @@ Your contacts and relationship history are always accessible, portable, and unde
 
 ### Active
 
-<!-- Current Milestone: v1.1 Two-Way iCloud Sync -->
-- [ ] Push changes (create, update, delete) from CRM to iCloud via CardDAV PUT/DELETE
-- [ ] Manual `acrm sync push` command + optional auto-push on save config
-- [ ] Conflict detection with warning when iCloud has newer version (CRM wins by default)
-- [ ] Selective sync filters by tag/status for both push and pull
-- [ ] New CRM-created contacts pushed to iCloud
-- [ ] Delete/archive in CRM propagates delete to iCloud on push
+<!-- Current Milestone: v1.2 MCP, Bulk Ops & LinkedIn -->
+- [ ] MCP server (HTTP/SSE) exposing full read+write CRM operations as tools
+- [ ] Bulk operations with query syntax and JSON pipe support
+- [ ] LinkedIn automation via Playwright for CSV auto-export with smart reimport (experimental)
 
 ### Future
 
-- [ ] MCP server exposing CRM as tool server for AI agents
-- [ ] Bulk operations (mass tagging, filtering, pipeline-style ops)
-- [ ] LinkedIn connector (richer than current CSV import)
+- [ ] Auto-push on save (sync config flag)
+- [ ] CalDAV calendar integration for follow-up reminders
 
 ### Out of Scope
 
+- LinkedIn profile scraping — TOS risk, fragile DOM selectors; CSV export automation is the safer path
 - Outlook/Exchange connector — defer to future milestone
 - Facebook/X connectors — defer to future milestone
 - Web UI — CLI/TUI first, web later
@@ -63,11 +60,12 @@ Your contacts and relationship history are always accessible, portable, and unde
 
 ## Context
 
-Shipped v1.0 with 4,721 LOC Rust across 3 phases in 2 days.
+Shipped v1.0 with 4,721 LOC Rust across 3 phases in 2 days. Shipped v1.1 (two-way iCloud sync) in 1 day.
 Tech stack: Rust (edition 2024), clap 4, serde, serde_yaml, chrono, anyhow, ratatui 0.29, reqwest, quick-xml, calcard, keyring.
 Flat file architecture — no database, every command reads from disk.
 `store.rs` handles all file I/O with `ContactFile` as the primary unit.
 Raw frontmatter preservation pattern ensures YAML comments survive editing.
+v1.1 added: vCard serialization/cache, CardDAV PUT/DELETE, ETag conflict detection, sync filters (tag/status), bidirectional pull-then-push.
 
 **Known tech debt (3 items):**
 - SyncConfig struct unused (dead_code)
@@ -96,17 +94,14 @@ Raw frontmatter preservation pattern ensures YAML comments survive editing.
 | calcard for vCard parsing | Production quality, supports 3.0 and 4.0 | ✓ Good — handles iCloud vCards |
 | Dedup by source_id not name | Exact matching avoids false positives | ✓ Good — reliable sync |
 
-## Current Milestone: v1.1 Two-Way iCloud Sync
+## Current Milestone: v1.2 MCP, Bulk Ops & LinkedIn
 
-**Goal:** Enable full bidirectional iCloud CardDAV sync with conflict detection, selective filtering, and auto-push option.
+**Goal:** Make the CRM programmable — expose it to AI agents via MCP, add bulk operations with query+pipe support, and automate LinkedIn CSV export.
 
 **Target features:**
-- CardDAV PUT for creating/updating contacts in iCloud
-- CardDAV DELETE for removing contacts from iCloud
-- Conflict detection (ETag-based) with warn + override
-- `acrm sync push` manual command
-- Auto-push on save (optional config flag)
-- Selective sync by tag/status for push and pull
+- MCP server over HTTP/SSE with full read+write tools (search, show, add, edit, log, follow-ups)
+- Bulk operations: query syntax (`acrm bulk 'status=dormant' --set status=archived`) + JSON pipe composability
+- LinkedIn automation: Playwright-driven CSV export with smart reimport, dedup, and change detection (experimental)
 
 ---
-*Last updated: 2026-03-07 after v1.1 milestone start*
+*Last updated: 2026-03-08 after v1.2 milestone start*

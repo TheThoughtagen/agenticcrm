@@ -1,33 +1,31 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Two-Way iCloud Sync
-status: unknown
-last_updated: "2026-03-08T20:04:43.758Z"
+milestone: v1.2
+milestone_name: MCP, Bulk Ops & LinkedIn
+status: planning
+last_updated: "2026-03-08"
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 7
-  completed_plans: 7
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-07)
+See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Your contacts and relationship history are always accessible, portable, and under your control
-**Current focus:** Phase 6 - Selective Sync & Bidirectional (filtering complete, bidirectional next)
+**Current focus:** Defining requirements for v1.2
 
 ## Current Position
 
-Phase: 6 of 6 (Selective Sync & Bidirectional) -- third phase of v1.1
-Plan: 2 of 2 in current phase (Plan 02 complete -- bidirectional sync)
-Status: Complete
-Last activity: 2026-03-08 -- completed 06-02 bidirectional sync (pull-then-push)
-
-Progress: [██████████] 100% (7/7 v1.1 plans)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-08 — Milestone v1.2 started
 
 ## Performance Metrics
 
