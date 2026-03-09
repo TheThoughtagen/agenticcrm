@@ -88,13 +88,13 @@ Requirements for v1.2 milestone (MCP, Bulk Ops & LinkedIn). Each maps to roadmap
 
 ### Release Pipeline
 
-- [ ] **REL-01**: Tag-triggered GitHub Actions workflow builds binaries for macOS (ARM64 + x86_64), Linux (x86_64), and Windows (x86_64)
-- [ ] **REL-02**: GitHub Releases created automatically with platform binaries and checksums
-- [ ] **REL-03**: Shell installer script available for macOS/Linux (`curl | sh`)
-- [ ] **REL-04**: PowerShell installer script available for Windows
-- [ ] **REL-05**: Homebrew formula published to tap repository on release
-- [ ] **REL-06**: Platform-conditional keyring dependencies for cross-platform compilation
-- [ ] **REL-07**: Automated version bumping and changelog generation via release-plz
+- [x] **REL-01**: Tag-triggered GitHub Actions workflow builds binaries for macOS (ARM64 + x86_64), Linux (x86_64), and Windows (x86_64)
+- [x] **REL-02**: GitHub Releases created automatically with platform binaries and checksums
+- [x] **REL-03**: Shell installer script available for macOS/Linux (`curl | sh`)
+- [x] **REL-04**: PowerShell installer script available for Windows
+- [x] **REL-05**: Homebrew formula published to tap repository on release
+- [x] **REL-06**: Platform-conditional keyring dependencies for cross-platform compilation
+- [x] **REL-07**: Automated version bumping and changelog generation via release-plz
 
 ## Future Requirements
 

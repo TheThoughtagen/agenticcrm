@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: MCP, Bulk Ops & LinkedIn
-status: unknown
-last_updated: "2026-03-09T20:01:17.561Z"
+status: in-progress
+last_updated: "2026-03-09T22:04:48Z"
 progress:
-  total_phases: 8
-  completed_phases: 8
-  total_plans: 18
-  completed_plans: 18
+  total_phases: 12
+  completed_phases: 10
+  total_plans: 20
+  completed_plans: 19
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Your contacts and relationship history are always accessible, portable, and under your control
-**Current focus:** Phase 10 - LinkedIn Import (v1.2)
+**Current focus:** Phase 12 - Release Pipeline (v1.2)
 
 ## Current Position
 
-Phase: 10 of 11 (LinkedIn Import)
-Plan: 3 of 3 complete
-Status: Phase Complete
-Last activity: 2026-03-09 -- Completed 10-03 (Gap closure: dry-run and skipped counting fixes)
+Phase: 12 of 12 (Release Pipeline)
+Plan: 1 of 2 complete
+Status: In Progress
+Last activity: 2026-03-09 -- Completed 12-01 (Release pipeline configuration)
 
-Progress: [##########] 100% (phase 10 complete)
+Progress: [#########-] 95% (plan 12-01 complete)
 
 ## Performance Metrics
 
@@ -51,6 +51,7 @@ Progress: [##########] 100% (phase 10 complete)
 | 9. MCP Server | 2/2 | 13m | ~7m |
 | 10. LinkedIn Import | 3/3 | 8m | ~3m |
 | 11. Docs & Release | 2/3 | 4m | 2m |
+| 12. Release Pipeline | 1/2 | 5m | 5m |
 
 ## Accumulated Context
 
@@ -93,10 +94,14 @@ Recent decisions affecting current work:
 - [Phase 10]: ImportSource enum with Linkedin variant for extensible import sources
 - [Phase 10]: Dry-run predicts file path via string formatting instead of calling contact::add
 - [Phase 10]: No-change matches pushed to skipped vec with reason "no changes needed"
+- [Phase 12]: [workspace.metadata.dist] not [dist] for cargo-dist 0.31.0 compatibility
+- [Phase 12]: RELEASE_PLZ_TOKEN (PAT) for tag-triggered downstream workflows
+- [Phase 12]: git_release_enable=false in release-plz (cargo-dist owns GitHub Releases)
 
 ### Roadmap Evolution
 
 - Phase 11 added: Documentation & Release Readiness (README, CONTRIBUTING, LICENSE, MCP setup guide)
+- Phase 12 added: Release pipeline with cross-platform builds, Homebrew, Chocolatey, and install script
 
 ### Pending Todos
 
@@ -111,5 +116,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 10-03-PLAN.md (Gap closure: dry-run and skipped counting fixes)
-Resume file: .planning/phases/10-linkedin-import/10-03-SUMMARY.md
+Stopped at: Completed 12-01-PLAN.md (Release pipeline configuration)
+Resume file: .planning/phases/12-release-pipeline-with-cross-platform-builds-homebrew-chocolatey-and-install-script/12-01-SUMMARY.md

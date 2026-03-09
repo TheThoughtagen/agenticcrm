@@ -142,7 +142,7 @@ Plans:
   3. Users can install via Homebrew (`brew install TheThoughtagen/tap/acrm`), shell script, PowerShell script, or cargo install
   4. release-plz automates version bumps and changelog generation on push to main
   5. keyring crate compiles correctly on all target platforms with native backends
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] 12-01-PLAN.md — cargo-dist config, platform-conditional deps, release workflow generation, release-plz setup
