@@ -271,7 +271,7 @@ Simplest Claude Desktop config (`claude_desktop_config.json`):
 }
 ```
 
-Available MCP tools: `search_contacts`, `show_contact`, `add_contact`, `edit_contact`, `log_interaction`, `delete_contact`, `archive_contact`, `due_follow_ups`, `sync`.
+Available MCP tools: `search_contacts`, `show_contact`, `add_contact`, `edit_contact`, `log_interaction`, `delete_contact`, `archive_contact`, `due_followups`, `sync_contacts`.
 
 See [docs/mcp-setup.md](docs/mcp-setup.md) for the full setup guide, including HTTP transport configuration and sync permissions.
 
