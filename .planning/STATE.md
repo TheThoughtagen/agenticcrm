@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Your contacts and relationship history are always accessible, portable, and under your control
-**Current focus:** Phase 11 - Documentation & Release Readiness (v1.2)
+**Current focus:** Phase 10 - LinkedIn Import (v1.2)
 
 ## Current Position
 
-Phase: 11 of 11 (Documentation & Release Readiness)
-Plan: 2 of 3 complete
+Phase: 10 of 11 (LinkedIn Import)
+Plan: 1 of 2 complete
 Status: In Progress
-Last activity: 2026-03-09 -- Completed 11-02 (MCP setup guide & CONTRIBUTING.md)
+Last activity: 2026-03-09 -- Completed 10-01 (LinkedIn import ops layer)
 
-Progress: [##########] 97% (plan 2/3 of final phase complete)
+Progress: [########--] 80% (plan 1/2 of phase 10 complete)
 
 ## Performance Metrics
 
@@ -49,6 +49,7 @@ Progress: [##########] 97% (plan 2/3 of final phase complete)
 | 7. Operations Layer | 2/2 | 14m | 7m |
 | 8. Bulk Ops & Query Engine | 2/2 | 9m | ~5m |
 | 9. MCP Server | 2/2 | 13m | ~7m |
+| 10. LinkedIn Import | 1/2 | 4m | 4m |
 | 11. Docs & Release | 2/3 | 4m | 2m |
 
 ## Accumulated Context
@@ -85,6 +86,9 @@ Recent decisions affecting current work:
 - [Phase 11]: MIT license with AgenticCRM Contributors as copyright holder
 - [Phase 11]: rust-version 1.85 minimum for edition 2024
 - [Phase 11]: MCP tool names from source: due_followups (not due_follow_ups), sync_contacts (not sync)
+- [Phase 10]: Date format order: %m/%d/%y before %m/%d/%Y for correct 2-digit year parsing
+- [Phase 10]: New contacts via ops::contact::add then frontmatter post-processing for LinkedIn fields
+- [Phase 10]: Source field: only fill if truly empty, not if default 'manual'
 
 ### Roadmap Evolution
 
@@ -103,5 +107,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 11-02-PLAN.md (MCP setup guide & CONTRIBUTING.md)
-Resume file: .planning/phases/11-docs-release-readiness/11-02-SUMMARY.md
+Stopped at: Completed 10-01-PLAN.md (LinkedIn import ops layer)
+Resume file: .planning/phases/10-linkedin-import/10-01-SUMMARY.md

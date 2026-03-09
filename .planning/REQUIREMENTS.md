@@ -73,10 +73,10 @@ Requirements for v1.2 milestone (MCP, Bulk Ops & LinkedIn). Each maps to roadmap
 
 ### LinkedIn Import
 
-- [ ] **LNKD-01**: User can import LinkedIn CSV via `acrm import linkedin <file>`
-- [ ] **LNKD-02**: Import deduplicates against existing contacts by name and email
-- [ ] **LNKD-03**: Re-import detects changes and updates only modified fields
-- [ ] **LNKD-04**: Import maps all available LinkedIn CSV fields to contact schema
+- [x] **LNKD-01**: User can import LinkedIn CSV via `acrm import linkedin <file>`
+- [x] **LNKD-02**: Import deduplicates against existing contacts by name and email
+- [x] **LNKD-03**: Re-import detects changes and updates only modified fields
+- [x] **LNKD-04**: Import maps all available LinkedIn CSV fields to contact schema
 
 ### Documentation & Release Readiness
 
@@ -153,10 +153,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BULK-05 | Phase 8 | Complete |
 | BULK-06 | Phase 8 | Complete |
 | BULK-07 | Phase 8 | Complete |
-| LNKD-01 | Phase 10 | Pending |
-| LNKD-02 | Phase 10 | Pending |
-| LNKD-03 | Phase 10 | Pending |
-| LNKD-04 | Phase 10 | Pending |
+| LNKD-01 | Phase 10 | Complete |
+| LNKD-02 | Phase 10 | Complete |
+| LNKD-03 | Phase 10 | Complete |
+| LNKD-04 | Phase 10 | Complete |
 | DOCS-01 | Phase 11 | Complete |
 | DOCS-02 | Phase 11 | Complete |
 | DOCS-03 | Phase 11 | Complete |

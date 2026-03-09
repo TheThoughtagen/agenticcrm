@@ -111,7 +111,7 @@ Plans:
 | 7. Operations Layer | 2/2 | Complete   | 2026-03-09 | - |
 | 8. Bulk Operations & Query Engine | v1.2 | 1/2 | In progress | - |
 | 9. MCP Server | 2/2 | Complete   | 2026-03-09 | - |
-| 10. LinkedIn Import | v1.2 | 0/2 | Not started | - |
+| 10. LinkedIn Import | 1/2 | In Progress|  | - |
 
 ### Phase 11: Documentation & Release Readiness
 **Goal:** Repository is ready for public GitHub with comprehensive README, setup guides, and contributor docs
