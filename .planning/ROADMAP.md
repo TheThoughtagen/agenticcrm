@@ -109,10 +109,11 @@ Plans:
 | 4. Push Infrastructure | v1.1 | 3/3 | Complete | 2026-03-07 |
 | 5. Push Command | v1.1 | 2/2 | Complete | 2026-03-08 |
 | 6. Selective Sync & Bidirectional | v1.1 | 2/2 | Complete | 2026-03-08 |
-| 7. Operations Layer | 2/2 | Complete   | 2026-03-09 | - |
+| 7. Operations Layer | v1.2 | 2/2 | Complete | 2026-03-09 |
 | 8. Bulk Operations & Query Engine | v1.2 | 1/2 | In progress | - |
-| 9. MCP Server | 2/2 | Complete   | 2026-03-09 | - |
-| 10. LinkedIn Import | 3/3 | Complete    | 2026-03-09 | - |
+| 9. MCP Server | v1.2 | 2/2 | Complete | 2026-03-09 |
+| 10. LinkedIn Import | v1.2 | 3/3 | Complete | 2026-03-09 |
+| 11. Documentation & Release Readiness | v1.2 | 2/2 | Complete | 2026-03-09 |
 
 ### Phase 11: Documentation & Release Readiness
 **Goal:** Repository is ready for public GitHub with comprehensive README, setup guides, and contributor docs
@@ -127,5 +128,22 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 11-01-PLAN.md — README.md rewrite, LICENSE file, Cargo.toml metadata
-- [ ] 11-02-PLAN.md — MCP setup guide and CONTRIBUTING.md
+- [x] 11-01-PLAN.md — README.md rewrite, LICENSE file, Cargo.toml metadata
+- [x] 11-02-PLAN.md — MCP setup guide and CONTRIBUTING.md
+
+### Phase 12: Release Pipeline with Cross-Platform Builds, Homebrew, and Install Scripts
+
+**Goal:** Automated release pipeline that builds cross-platform binaries, creates GitHub Releases with installers, publishes Homebrew formula, and automates versioning/changelog
+**Requirements**: REL-01, REL-02, REL-03, REL-04, REL-05, REL-06, REL-07
+**Depends on:** Phase 11
+**Success Criteria** (what must be TRUE):
+  1. Pushing a version tag triggers GitHub Actions that build binaries for macOS (ARM64 + x86_64), Linux (x86_64), and Windows (x86_64)
+  2. GitHub Releases are created automatically with platform binaries, checksums, and install scripts
+  3. Users can install via Homebrew (`brew install TheThoughtagen/tap/acrm`), shell script, PowerShell script, or cargo install
+  4. release-plz automates version bumps and changelog generation on push to main
+  5. keyring crate compiles correctly on all target platforms with native backends
+**Plans:** 2 plans
+
+Plans:
+- [ ] 12-01-PLAN.md — cargo-dist config, platform-conditional deps, release workflow generation, release-plz setup
+- [ ] 12-02-PLAN.md — Documentation updates, Homebrew tap creation, GitHub secrets setup

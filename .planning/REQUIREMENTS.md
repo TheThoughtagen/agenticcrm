@@ -86,6 +86,16 @@ Requirements for v1.2 milestone (MCP, Bulk Ops & LinkedIn). Each maps to roadmap
 - [x] **DOCS-04**: CONTRIBUTING.md explains how to build, test, and contribute
 - [x] **DOCS-05**: `cargo install` from the repo works for end users (Cargo.toml metadata complete)
 
+### Release Pipeline
+
+- [ ] **REL-01**: Tag-triggered GitHub Actions workflow builds binaries for macOS (ARM64 + x86_64), Linux (x86_64), and Windows (x86_64)
+- [ ] **REL-02**: GitHub Releases created automatically with platform binaries and checksums
+- [ ] **REL-03**: Shell installer script available for macOS/Linux (`curl | sh`)
+- [ ] **REL-04**: PowerShell installer script available for Windows
+- [ ] **REL-05**: Homebrew formula published to tap repository on release
+- [ ] **REL-06**: Platform-conditional keyring dependencies for cross-platform compilation
+- [ ] **REL-07**: Automated version bumping and changelog generation via release-plz
+
 ## Future Requirements
 
 ### Playwright LinkedIn Automation
@@ -162,13 +172,20 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DOCS-03 | Phase 11 | Complete |
 | DOCS-04 | Phase 11 | Complete |
 | DOCS-05 | Phase 11 | Complete |
+| REL-01 | Phase 12 | Planned |
+| REL-02 | Phase 12 | Planned |
+| REL-03 | Phase 12 | Planned |
+| REL-04 | Phase 12 | Planned |
+| REL-05 | Phase 12 | Planned |
+| REL-06 | Phase 12 | Planned |
+| REL-07 | Phase 12 | Planned |
 
 **Coverage:**
 - v1.1 requirements: 15 total (all complete)
-- v1.2 requirements: 30 total (includes DOCS-01 through DOCS-05)
-- Mapped to phases: 30/30
+- v1.2 requirements: 37 total (includes DOCS-01 through DOCS-05, REL-01 through REL-07)
+- Mapped to phases: 37/37
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-07*
-*Last updated: 2026-03-09 after Phase 11 planning*
+*Last updated: 2026-03-09 after Phase 12 planning*
