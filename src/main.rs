@@ -252,14 +252,20 @@ fn main() -> anyhow::Result<()> {
             dry_run,
         } => commands::bulk::run_bulk_update(stdin, &sets, delete, archive, &add_tags, &remove_tags, yes, dry_run, fmt),
         Commands::Serve {
-            http: _http,
-            port: _port,
+            http,
+            port,
             allow_sync,
         } => {
             let root = store::find_crm_root()?;
             let server = mcp::CrmServer::new(root, allow_sync);
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(mcp::serve_stdio(server))
+            rt.block_on(async {
+                if http {
+                    mcp::serve_http(server, port).await
+                } else {
+                    mcp::serve_stdio(server).await
+                }
+            })
         }
         Commands::Due => commands::due::run(fmt),
         Commands::Tui => tui::run(),

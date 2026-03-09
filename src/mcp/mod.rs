@@ -81,6 +81,50 @@ pub async fn serve_stdio(server: CrmServer) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Start the MCP server on Streamable HTTP transport.
+pub async fn serve_http(server: CrmServer, port: u16) -> anyhow::Result<()> {
+    use rmcp::transport::streamable_http_server::{
+        session::local::LocalSessionManager,
+        tower::{StreamableHttpServerConfig, StreamableHttpService},
+    };
+    use tokio_util::sync::CancellationToken;
+
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive("info".parse().unwrap()),
+        )
+        .init();
+
+    let ct = CancellationToken::new();
+    let session_manager = Arc::new(LocalSessionManager::default());
+
+    let config = StreamableHttpServerConfig {
+        cancellation_token: ct.clone(),
+        ..Default::default()
+    };
+
+    let service = StreamableHttpService::new(
+        move || Ok(server.clone()),
+        session_manager,
+        config,
+    );
+
+    let router = axum::Router::new().nest_service("/mcp", service);
+    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
+
+    tracing::info!("MCP HTTP server listening on http://127.0.0.1:{}/mcp", port);
+
+    axum::serve(listener, router)
+        .with_graceful_shutdown(async move {
+            tokio::signal::ctrl_c().await.ok();
+            ct.cancel();
+        })
+        .await?;
+
+    Ok(())
+}
+
 /// Map OpsError to rmcp ErrorData for MCP tool responses.
 pub fn ops_err_to_mcp(e: OpsError) -> ErrorData {
     match e {
