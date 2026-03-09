@@ -2,17 +2,10 @@ use std::fmt;
 
 use anyhow::Result;
 use dialoguer::Confirm;
-use serde::Serialize;
 
 use crate::format::{self, OutputFormat};
+use crate::ops::contact::DeleteResult;
 use crate::store;
-
-#[derive(Serialize)]
-pub struct DeleteResult {
-    pub name: String,
-    pub path: String,
-    pub deleted: bool,
-}
 
 impl fmt::Display for DeleteResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

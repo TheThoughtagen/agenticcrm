@@ -2,19 +2,12 @@ use std::fmt;
 
 use anyhow::Result;
 use colored::Colorize;
-use serde::Serialize;
 
 use crate::format::{self, OutputFormat};
+use crate::ops::contact::SearchMatch;
 use crate::store;
 
-#[derive(Serialize)]
-pub struct SearchResult {
-    pub name: String,
-    pub company: String,
-    pub path: String,
-}
-
-impl fmt::Display for SearchResult {
+impl fmt::Display for SearchMatch {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let company = if self.company.is_empty() {
             String::new()
@@ -57,9 +50,9 @@ pub fn run(query: &str, output_format: &OutputFormat) -> Result<()> {
         return Ok(());
     }
 
-    let results: Vec<SearchResult> = matches
+    let results: Vec<SearchMatch> = matches
         .iter()
-        .map(|cf| SearchResult {
+        .map(|cf| SearchMatch {
             name: cf.contact.name.clone(),
             company: cf.contact.company.clone(),
             path: cf.path.display().to_string(),

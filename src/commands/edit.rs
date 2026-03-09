@@ -1,31 +1,13 @@
 use std::fmt;
 
 use anyhow::{Context, Result, bail};
-use serde::Serialize;
 
 use crate::format::{self, OutputFormat};
 use crate::frontmatter;
 use crate::models::Contact;
+use crate::ops::contact::{ARRAY_FIELDS, EditResult, needs_quoting};
 use crate::store;
 use crate::validation;
-
-/// Known array fields in the contact schema
-const ARRAY_FIELDS: &[&str] = &[
-    "email",
-    "phone",
-    "address",
-    "aliases",
-    "interests",
-    "family",
-    "tags",
-];
-
-#[derive(Serialize)]
-pub struct EditResult {
-    pub name: String,
-    pub updated_fields: Vec<String>,
-    pub path: String,
-}
 
 impl fmt::Display for EditResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -107,46 +89,4 @@ pub fn run(name: &str, sets: &[String], format: &OutputFormat) -> Result<()> {
     };
 
     format::output(&result, format)
-}
-
-/// Determine if a value needs YAML quoting.
-/// Values that are plain YAML scalars (numbers, booleans, dates, known enums) don't need quotes.
-fn needs_quoting(value: &str) -> bool {
-    // Empty string needs quoting
-    if value.is_empty() {
-        return true;
-    }
-
-    // Already quoted
-    if value.starts_with('"') && value.ends_with('"') {
-        return false;
-    }
-
-    // Known bare YAML values that don't need quotes
-    let bare_values = [
-        "true", "false", "null", "~",
-        "active", "dormant", "lost-touch", "archived",
-        "friend", "colleague", "client", "mentor", "mentee", "acquaintance", "family", "other",
-        "high", "medium", "low",
-        "weekly", "biweekly", "monthly", "quarterly", "yearly",
-        "manual", "linkedin", "carddav",
-    ];
-
-    if bare_values.contains(&value.to_lowercase().as_str()) {
-        return false;
-    }
-
-    // Numbers don't need quotes
-    if value.parse::<f64>().is_ok() {
-        return false;
-    }
-
-    // Dates (YYYY-MM-DD) don't need quotes
-    if value.len() == 10 && value.chars().nth(4) == Some('-') && value.chars().nth(7) == Some('-') {
-        if value.parse::<chrono::NaiveDate>().is_ok() {
-            return false;
-        }
-    }
-
-    true
 }

@@ -3,18 +3,10 @@ use std::fmt;
 use anyhow::Result;
 use chrono::Local;
 use colored::Colorize;
-use serde::Serialize;
 
 use crate::format::{self, OutputFormat};
+use crate::ops::contact::DueContact;
 use crate::store;
-
-#[derive(Serialize)]
-pub struct DueContact {
-    pub name: String,
-    pub next_follow_up: String,
-    pub last_contacted: String,
-    pub overdue_days: i64,
-}
 
 impl fmt::Display for DueContact {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

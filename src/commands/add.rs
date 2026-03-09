@@ -1,18 +1,12 @@
 use std::fmt;
 
 use anyhow::Result;
-use serde::Serialize;
 use uuid::Uuid;
 
 use crate::format::{self, OutputFormat};
 use crate::models::{Contact, ContactFile, Priority, Relationship, Status};
+use crate::ops::contact::AddResult;
 use crate::store;
-
-#[derive(Serialize)]
-pub struct AddResult {
-    pub name: String,
-    pub path: String,
-}
 
 impl fmt::Display for AddResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -1,23 +1,12 @@
 use std::fmt;
 
-use anyhow::{Context, Result, bail};
-use chrono::{Duration, Local, Months, NaiveDate};
-use serde::Serialize;
+use anyhow::{Context, Result};
+use chrono::Local;
 
 use crate::format::{self, OutputFormat};
 use crate::frontmatter;
+use crate::ops::contact::{self, LogResult};
 use crate::store;
-
-#[derive(Serialize)]
-pub struct LogResult {
-    pub name: String,
-    pub interaction_type: String,
-    pub summary: String,
-    pub path: String,
-    pub last_contacted: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub next_follow_up: Option<String>,
-}
 
 impl fmt::Display for LogResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -33,33 +22,12 @@ impl fmt::Display for LogResult {
     }
 }
 
-/// Calculate the next follow-up date from a given date and cadence string.
-/// Returns Ok(None) if cadence is empty.
-/// Returns Err if cadence is unknown.
-pub fn next_follow_up(from_date: NaiveDate, cadence: &str) -> Result<Option<NaiveDate>> {
-    let cadence = cadence.trim();
-    if cadence.is_empty() {
-        return Ok(None);
-    }
-
-    let next = match cadence {
-        "weekly" => from_date + Duration::days(7),
-        "biweekly" | "bi-weekly" => from_date + Duration::days(14),
-        "monthly" => from_date
-            .checked_add_months(Months::new(1))
-            .context("Date overflow adding 1 month")?,
-        "quarterly" => from_date
-            .checked_add_months(Months::new(3))
-            .context("Date overflow adding 3 months")?,
-        "yearly" | "annually" => from_date
-            .checked_add_months(Months::new(12))
-            .context("Date overflow adding 12 months")?,
-        _ => bail!(
-            "Unknown cadence: '{cadence}'. Supported: weekly, biweekly, monthly, quarterly, yearly"
-        ),
-    };
-
-    Ok(Some(next))
+/// Re-export for backward compatibility (TUI and tests reference this).
+pub fn next_follow_up(
+    from_date: chrono::NaiveDate,
+    cadence: &str,
+) -> Result<Option<chrono::NaiveDate>> {
+    contact::next_follow_up(from_date, cadence).map_err(|e| anyhow::anyhow!(e))
 }
 
 pub fn run(

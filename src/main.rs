@@ -2,6 +2,7 @@ mod commands;
 mod format;
 mod frontmatter;
 mod models;
+mod ops;
 mod store;
 mod sync;
 mod tui;

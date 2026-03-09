@@ -1,19 +1,11 @@
 use std::fmt;
 
 use anyhow::{Context, Result};
-use serde::Serialize;
 
 use crate::format::{self, OutputFormat};
 use crate::frontmatter;
+use crate::ops::contact::ArchiveResult;
 use crate::store;
-
-#[derive(Serialize)]
-pub struct ArchiveResult {
-    pub name: String,
-    pub action: String,
-    pub from_path: String,
-    pub to_path: String,
-}
 
 impl fmt::Display for ArchiveResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

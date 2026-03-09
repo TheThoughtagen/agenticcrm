@@ -2,18 +2,10 @@ use std::fmt;
 
 use anyhow::Result;
 use colored::Colorize;
-use serde::Serialize;
 
 use crate::format::{self, OutputFormat};
-use crate::models::Contact;
+use crate::ops::contact::ContactDetail;
 use crate::store;
-
-#[derive(Serialize)]
-pub struct ContactDetail {
-    #[serde(flatten)]
-    pub contact: Contact,
-    pub body: String,
-}
 
 impl fmt::Display for ContactDetail {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
