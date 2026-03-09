@@ -8,6 +8,8 @@ const SERVICE_NAME: &str = "acrm-icloud";
 /// Sync configuration loaded from the config file (sync.toml).
 #[derive(Debug, Deserialize)]
 pub struct SyncConfig {
+    /// Required by TOML deserialization; credentials are loaded separately via keyring.
+    #[allow(dead_code)]
     pub apple_id: String,
     #[serde(default)]
     pub push_filters: FilterConfig,

@@ -19,14 +19,6 @@ impl fmt::Display for LogResult {
     }
 }
 
-/// Re-export for backward compatibility (TUI references this).
-pub fn next_follow_up(
-    from_date: chrono::NaiveDate,
-    cadence: &str,
-) -> anyhow::Result<Option<chrono::NaiveDate>> {
-    ops::contact::next_follow_up(from_date, cadence).map_err(|e| anyhow::anyhow!(e))
-}
-
 pub fn run(
     name: &str,
     interaction_type: &str,
@@ -41,8 +33,8 @@ pub fn run(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use chrono::NaiveDate;
+    use crate::ops::contact::next_follow_up;
 
     fn date(y: i32, m: u32, d: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(y, m, d).unwrap()

@@ -144,24 +144,18 @@ pub fn run_bidirectional(
     Ok(())
 }
 
-/// Extract a UID from a vCard href path (delegates to ops).
-pub fn extract_uid_from_href(href: &str) -> String {
-    ops::sync::extract_uid_from_href(href)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::ops::sync::{SyncResult, PushSyncResult};
+    use crate::ops::sync::{self, SyncResult, PushSyncResult};
 
     #[test]
     fn test_extract_uid_from_href() {
         assert_eq!(
-            extract_uid_from_href("/123/carddavhome/card/ABC-DEF-123.vcf"),
+            sync::extract_uid_from_href("/123/carddavhome/card/ABC-DEF-123.vcf"),
             "ABC-DEF-123"
         );
-        assert_eq!(extract_uid_from_href("contact1.vcf"), "contact1");
-        assert_eq!(extract_uid_from_href("/path/to/file"), "file");
+        assert_eq!(sync::extract_uid_from_href("contact1.vcf"), "contact1");
+        assert_eq!(sync::extract_uid_from_href("/path/to/file"), "file");
     }
 
     #[test]
