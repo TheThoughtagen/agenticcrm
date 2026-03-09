@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: MCP, Bulk Ops & LinkedIn
-status: planning
+status: executing
 last_updated: "2026-03-09"
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 2
+  completed_plans: 1
 ---
 
 # Project State
@@ -23,9 +23,9 @@ See: .planning/PROJECT.md (updated 2026-03-08)
 ## Current Position
 
 Phase: 7 of 10 (Operations Layer)
-Plan: --
-Status: Ready to plan
-Last activity: 2026-03-09 -- Roadmap created for v1.2 (Phases 7-10)
+Plan: 1 of 2 complete
+Status: Executing
+Last activity: 2026-03-09 -- Completed 07-01 (CRUD ops extraction)
 
 Progress: [######░░░░] 60% (6/10 phases complete across all milestones)
 
@@ -46,6 +46,7 @@ Progress: [######░░░░] 60% (6/10 phases complete across all milestones)
 | 4. Push Infrastructure | 3 | ~12m | ~4m |
 | 5. Push Command | 2 | ~8m | ~4m |
 | 6. Selective Sync | 2 | ~8m | ~4m |
+| 7. Operations Layer | 1/2 | 8m | 8m |
 
 ## Accumulated Context
 
@@ -60,6 +61,9 @@ Recent decisions affecting current work:
 - v1.2: rmcp 1.1 as MCP SDK (official, released 2026-03-04)
 - v1.2: tokio only for `acrm serve`; all other commands remain synchronous
 - v1.2: ops.rs extraction as prerequisite for MCP and bulk ops
+- v1.2: OpsError uses thiserror with NotFound, AmbiguousMatch, ValidationFailed, Io, Internal variants
+- v1.2: ops::contact owns fuzzy name matching; Display impls stay in CLI command files
+- v1.2: Two-phase delete pattern (find_delete_target + confirm_delete) for non-interactive consumers
 
 ### Pending Todos
 
@@ -74,5 +78,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Phase 7 context gathered
-Resume file: .planning/phases/07-operations-layer/07-CONTEXT.md
+Stopped at: Completed 07-01-PLAN.md
+Resume file: .planning/phases/07-operations-layer/07-01-SUMMARY.md

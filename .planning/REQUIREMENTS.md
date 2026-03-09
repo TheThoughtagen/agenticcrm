@@ -43,8 +43,8 @@ Requirements for v1.2 milestone (MCP, Bulk Ops & LinkedIn). Each maps to roadmap
 
 ### Operations Layer
 
-- [ ] **OPS-01**: Business logic extracted from CLI handlers into shared ops module
-- [ ] **OPS-02**: All existing CLI commands delegate to ops layer (no behavior change)
+- [x] **OPS-01**: Business logic extracted from CLI handlers into shared ops module
+- [x] **OPS-02**: All existing CLI commands delegate to ops layer (no behavior change)
 
 ### MCP Server
 
@@ -124,8 +124,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FILT-04 | Phase 6 | Complete |
 | BIDI-01 | Phase 6 | Complete |
 | BIDI-02 | Phase 6 | Complete |
-| OPS-01 | Phase 7 | Pending |
-| OPS-02 | Phase 7 | Pending |
+| OPS-01 | Phase 7 | Complete |
+| OPS-02 | Phase 7 | Complete |
 | MCP-01 | Phase 9 | Pending |
 | MCP-02 | Phase 9 | Pending |
 | MCP-03 | Phase 9 | Pending |
