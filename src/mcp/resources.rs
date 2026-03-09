@@ -20,7 +20,6 @@ impl CrmServer {
         let resources: Vec<Resource> = contacts
             .into_iter()
             .map(|cs| {
-                // Build slug from name: lowercase, hyphenated, alphanumeric only
                 let slug = cs
                     .name
                     .to_lowercase()
@@ -35,26 +34,15 @@ impl CrmServer {
                 };
 
                 Annotated::new(
-                    RawResource {
-                        uri: format!("contact://{}", slug),
-                        name: cs.name,
-                        title: None,
-                        description: Some(description),
-                        mime_type: Some("text/markdown".to_string()),
-                        size: None,
-                        icons: None,
-                        meta: None,
-                    },
+                    RawResource::new(format!("contact://{}", slug), cs.name)
+                        .with_description(description)
+                        .with_mime_type("text/markdown"),
                     None,
                 )
             })
             .collect();
 
-        Ok(ListResourcesResult {
-            resources,
-            next_cursor: None,
-            meta: None,
-        })
+        Ok(ListResourcesResult::with_all_items(resources))
     }
 
     /// Read a single contact resource by contact:// URI.
@@ -64,7 +52,6 @@ impl CrmServer {
     ) -> Result<ReadResourceResult, ErrorData> {
         let uri = &params.uri;
 
-        // Parse contact:// URI to extract slug
         let slug = uri
             .strip_prefix("contact://")
             .ok_or_else(|| {
@@ -74,7 +61,6 @@ impl CrmServer {
                 )
             })?;
 
-        // Convert slug to name query (replace hyphens with spaces)
         let name_query = slug.replace('-', " ");
 
         let root = self.root.clone();
@@ -85,7 +71,6 @@ impl CrmServer {
         .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
         .map_err(super::ops_err_to_mcp)?;
 
-        // Serialize the contact detail as JSON for the resource content
         let json = serde_json::to_string_pretty(&result)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
