@@ -75,12 +75,11 @@ Plans:
   3. Agent can perform full read+write CRM operations (search, view, add, edit, log interaction, delete/archive, list due follow-ups, trigger sync) through MCP tools
   4. Contacts are browsable as MCP resources via `contact://` URIs
   5. Concurrent MCP requests from the same or multiple agents do not corrupt contact files
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 09-01: TBD
-- [ ] 09-02: TBD
-- [ ] 09-03: TBD
+- [ ] 09-01-PLAN.md — MCP foundation: dependencies, CrmServer, ServerHandler, read-only tools (search, show, due), stdio transport
+- [ ] 09-02-PLAN.md — Write tools (add, edit, log, delete, archive, sync), contact:// resources, Streamable HTTP transport
 
 ### Phase 10: LinkedIn Import
 **Goal**: Users can import LinkedIn connection data into the CRM with intelligent deduplication and change detection
@@ -111,5 +110,5 @@ Plans:
 | 6. Selective Sync & Bidirectional | v1.1 | 2/2 | Complete | 2026-03-08 |
 | 7. Operations Layer | 2/2 | Complete   | 2026-03-09 | - |
 | 8. Bulk Operations & Query Engine | v1.2 | 1/2 | In progress | - |
-| 9. MCP Server | v1.2 | 0/? | Not started | - |
+| 9. MCP Server | v1.2 | 0/2 | Not started | - |
 | 10. LinkedIn Import | v1.2 | 0/? | Not started | - |
