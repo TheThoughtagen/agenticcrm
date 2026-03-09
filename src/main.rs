@@ -87,6 +87,59 @@ enum Commands {
         /// Contact name (or partial match)
         name: String,
     },
+    /// Bulk query and operate on contacts
+    Bulk {
+        /// Query predicate (e.g. 'status=dormant', 'tags~friend')
+        query: String,
+        /// Set field values (repeatable, e.g. --set status=active)
+        #[arg(long = "set", num_args = 1)]
+        sets: Vec<String>,
+        /// Delete matched contacts
+        #[arg(long, conflicts_with = "archive")]
+        delete: bool,
+        /// Archive matched contacts
+        #[arg(long, conflicts_with = "delete")]
+        archive: bool,
+        /// Add tag to matched contacts (repeatable)
+        #[arg(long = "add-tag", num_args = 1)]
+        add_tags: Vec<String>,
+        /// Remove tag from matched contacts (repeatable)
+        #[arg(long = "remove-tag", num_args = 1)]
+        remove_tags: Vec<String>,
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        yes: bool,
+        /// Preview changes without writing
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Bulk update contacts from JSON stdin
+    BulkUpdate {
+        /// Read contact list from stdin (JSON array)
+        #[arg(long)]
+        stdin: bool,
+        /// Set field values (repeatable)
+        #[arg(long = "set", num_args = 1)]
+        sets: Vec<String>,
+        /// Delete matched contacts
+        #[arg(long, conflicts_with = "archive")]
+        delete: bool,
+        /// Archive matched contacts
+        #[arg(long, conflicts_with = "delete")]
+        archive: bool,
+        /// Add tag (repeatable)
+        #[arg(long = "add-tag", num_args = 1)]
+        add_tags: Vec<String>,
+        /// Remove tag (repeatable)
+        #[arg(long = "remove-tag", num_args = 1)]
+        remove_tags: Vec<String>,
+        /// Skip confirmation
+        #[arg(short, long)]
+        yes: bool,
+        /// Dry run
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Show contacts due for follow-up
     Due,
     /// Launch interactive TUI
@@ -165,6 +218,26 @@ fn main() -> anyhow::Result<()> {
         Commands::Delete { name, yes } => commands::delete::run(&name, yes, fmt),
         Commands::Archive { name } => commands::archive::run_archive(&name, fmt),
         Commands::Unarchive { name } => commands::archive::run_unarchive(&name, fmt),
+        Commands::Bulk {
+            query,
+            sets,
+            delete,
+            archive,
+            add_tags,
+            remove_tags,
+            yes,
+            dry_run,
+        } => commands::bulk::run_bulk(&query, &sets, delete, archive, &add_tags, &remove_tags, yes, dry_run, fmt),
+        Commands::BulkUpdate {
+            stdin,
+            sets,
+            delete,
+            archive,
+            add_tags,
+            remove_tags,
+            yes,
+            dry_run,
+        } => commands::bulk::run_bulk_update(stdin, &sets, delete, archive, &add_tags, &remove_tags, yes, dry_run, fmt),
         Commands::Due => commands::due::run(fmt),
         Commands::Tui => tui::run(),
         Commands::Sync {

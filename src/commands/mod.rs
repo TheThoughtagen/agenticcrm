@@ -1,5 +1,6 @@
 pub mod add;
 pub mod archive;
+pub mod bulk;
 pub mod delete;
 pub mod due;
 pub mod edit;
