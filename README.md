@@ -14,28 +14,31 @@ A plain-text, agent-friendly personal CRM. Contacts are markdown files with YAML
 
 ## Installation
 
-### Prerequisites
-
-Rust 1.85 or later:
+### Homebrew (macOS/Linux)
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+brew install TheThoughtagen/tap/acrm
 ```
 
-### From GitHub
+### Shell Installer (macOS/Linux)
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/TheThoughtagen/agenticcrm/releases/latest/download/acrm-installer.sh | sh
+```
+
+### PowerShell Installer (Windows)
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/TheThoughtagen/agenticcrm/releases/latest/download/acrm-installer.ps1 | iex"
+```
+
+### From Source
 
 ```bash
 cargo install --git https://github.com/TheThoughtagen/agenticcrm.git
 ```
 
-### From source
-
-```bash
-git clone https://github.com/TheThoughtagen/agenticcrm.git
-cd agenticcrm
-cargo build --release
-cp target/release/acrm ~/.local/bin/  # or anywhere on your PATH
-```
+Requires Rust 1.85 or later. Install Rust with `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`.
 
 ### Verify
 

@@ -93,3 +93,36 @@ When adding new functionality, include tests that cover both the success path an
 - Ensure `cargo clippy` produces no warnings
 - Run `cargo fmt` to maintain consistent formatting
 - Describe **what** changed and **why** in the PR description
+
+## Releasing
+
+Releases are automated via [release-plz](https://release-plz.dev/) and [cargo-dist](https://opensource.axo.dev/cargo-dist/).
+
+**How it works:**
+
+1. Push to `main` triggers release-plz, which opens a PR with version bump and changelog updates
+2. Review and merge the release PR
+3. release-plz creates a git tag (e.g., `v0.2.0`)
+4. The tag triggers cargo-dist, which:
+   - Builds binaries for macOS (ARM64 + x86_64), Linux (x86_64), and Windows (x86_64)
+   - Creates a GitHub Release with all artifacts and checksums
+   - Generates shell and PowerShell install scripts
+   - Publishes the Homebrew formula to the tap
+
+**Manual release (if needed):**
+
+```bash
+# Bump version in Cargo.toml, commit, then:
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+**Supported platforms:**
+
+| Platform | Architecture | Install Method |
+|----------|-------------|----------------|
+| macOS | ARM64 (Apple Silicon) | Homebrew, shell installer |
+| macOS | x86_64 (Intel) | Homebrew, shell installer |
+| Linux | x86_64 | Shell installer |
+| Windows | x86_64 | PowerShell installer |
+| Any | Any | `cargo install` from source |
