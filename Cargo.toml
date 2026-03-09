@@ -5,6 +5,7 @@ edition = "2024"
 description = "Agent-friendly personal CRM — CLI & TUI"
 license = "MIT"
 repository = "https://github.com/TheThoughtagen/agenticcrm"
+homepage = "https://github.com/TheThoughtagen/agenticcrm"
 readme = "README.md"
 keywords = ["crm", "contacts", "mcp", "cli", "carddav"]
 categories = ["command-line-utilities"]
@@ -51,7 +52,7 @@ keyring = { version = "3.6.3", features = ["linux-native"] }
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3.6.3", features = ["windows-native"] }
 
-[dist]
+[workspace.metadata.dist]
 cargo-dist-version = "0.31.0"
 ci = ["github"]
 installers = ["shell", "powershell", "homebrew"]
