@@ -188,91 +188,110 @@ pub fn import_linkedin(
                 // CREATE new contact
                 let mut fields_set = Vec::new();
 
-                let add_result =
-                    super::contact::add(root, &name).map_err(|e| OpsError::Internal(e.to_string()))?;
-
-                // Re-load for fresh raw_frontmatter
-                let path = std::path::PathBuf::from(&add_result.path);
-                let mut cf = store::parse_contact_file(&path)
-                    .map_err(|e| OpsError::Internal(e.to_string()))?;
-
-                // Company
+                // Compute fields that would be set from CSV data
                 let company = row.company.trim();
                 if !company.is_empty() {
-                    cf.raw_frontmatter = frontmatter::update_field(
-                        &cf.raw_frontmatter,
-                        "company",
-                        &format!("\"{}\"", company),
-                    );
                     fields_set.push("company".to_string());
                 }
-
-                // Role (from Position)
                 let role = row.position.trim();
                 if !role.is_empty() {
-                    cf.raw_frontmatter = frontmatter::update_field(
-                        &cf.raw_frontmatter,
-                        "role",
-                        &format!("\"{}\"", role),
-                    );
                     fields_set.push("role".to_string());
                 }
-
-                // Source
-                cf.raw_frontmatter =
-                    frontmatter::update_field(&cf.raw_frontmatter, "source", "linkedin");
                 fields_set.push("source".to_string());
-
-                // Relationship
-                cf.raw_frontmatter =
-                    frontmatter::update_field(&cf.raw_frontmatter, "relationship", "colleague");
                 fields_set.push("relationship".to_string());
-
-                // Email
                 let email = row.email_address.trim();
                 if !email.is_empty() {
-                    cf.raw_frontmatter = frontmatter::update_array_field(
-                        &cf.raw_frontmatter,
-                        "email",
-                        &[email.to_string()],
-                    );
                     fields_set.push("email".to_string());
                 }
-
-                // Met date
-                if let Some(date) = parse_connected_on(&row.connected_on) {
-                    cf.raw_frontmatter = frontmatter::update_field(
-                        &cf.raw_frontmatter,
-                        "met_date",
-                        &date.to_string(),
-                    );
+                if parse_connected_on(&row.connected_on).is_some() {
                     fields_set.push("met_date".to_string());
                 }
-
-                // Tags
-                cf.raw_frontmatter = frontmatter::update_array_field(
-                    &cf.raw_frontmatter,
-                    "tags",
-                    &["linkedin".to_string()],
-                );
                 fields_set.push("tags".to_string());
 
-                if !dry_run {
-                    // Re-parse the updated frontmatter
+                let path_str = if !dry_run {
+                    // Actually create the contact and write frontmatter
+                    let add_result = super::contact::add(root, &name)
+                        .map_err(|e| OpsError::Internal(e.to_string()))?;
+
+                    let path = std::path::PathBuf::from(&add_result.path);
+                    let mut cf = store::parse_contact_file(&path)
+                        .map_err(|e| OpsError::Internal(e.to_string()))?;
+
+                    // Company
+                    if !company.is_empty() {
+                        cf.raw_frontmatter = frontmatter::update_field(
+                            &cf.raw_frontmatter,
+                            "company",
+                            &format!("\"{}\"", company),
+                        );
+                    }
+
+                    // Role (from Position)
+                    if !role.is_empty() {
+                        cf.raw_frontmatter = frontmatter::update_field(
+                            &cf.raw_frontmatter,
+                            "role",
+                            &format!("\"{}\"", role),
+                        );
+                    }
+
+                    // Source
+                    cf.raw_frontmatter =
+                        frontmatter::update_field(&cf.raw_frontmatter, "source", "linkedin");
+
+                    // Relationship
+                    cf.raw_frontmatter =
+                        frontmatter::update_field(&cf.raw_frontmatter, "relationship", "colleague");
+
+                    // Email
+                    if !email.is_empty() {
+                        cf.raw_frontmatter = frontmatter::update_array_field(
+                            &cf.raw_frontmatter,
+                            "email",
+                            &[email.to_string()],
+                        );
+                    }
+
+                    // Met date
+                    if let Some(date) = parse_connected_on(&row.connected_on) {
+                        cf.raw_frontmatter = frontmatter::update_field(
+                            &cf.raw_frontmatter,
+                            "met_date",
+                            &date.to_string(),
+                        );
+                    }
+
+                    // Tags
+                    cf.raw_frontmatter = frontmatter::update_array_field(
+                        &cf.raw_frontmatter,
+                        "tags",
+                        &["linkedin".to_string()],
+                    );
+
+                    // Re-parse and write
                     let updated_contact: crate::models::Contact =
                         serde_yaml::from_str(&cf.raw_frontmatter).map_err(|e| {
                             OpsError::Internal(format!("Updated frontmatter invalid YAML: {e}"))
                         })?;
                     cf.contact = updated_contact;
 
-                    let content =
-                        store::serialize_contact_file(&cf).map_err(|e| OpsError::Internal(e.to_string()))?;
+                    let content = store::serialize_contact_file(&cf)
+                        .map_err(|e| OpsError::Internal(e.to_string()))?;
                     std::fs::write(&cf.path, &content)?;
-                }
+
+                    add_result.path
+                } else {
+                    // Predict the path without creating anything on disk
+                    let filename = format!(
+                        "contacts/{}.md",
+                        name.to_lowercase().replace(' ', "-")
+                    );
+                    root.join(&filename).display().to_string()
+                };
 
                 created.push(ImportChange {
                     name: name.clone(),
-                    path: add_result.path,
+                    path: path_str,
                     fields: fields_set,
                 });
             }
@@ -402,6 +421,11 @@ pub fn import_linkedin(
                         name: name.clone(),
                         path: cf.path.display().to_string(),
                         fields: fields_changed,
+                    });
+                } else {
+                    skipped.push(ImportSkip {
+                        name: name.clone(),
+                        reason: "no changes needed".to_string(),
                     });
                 }
             }
