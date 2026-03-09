@@ -878,8 +878,10 @@ etag: """#);
 
         let result = import_linkedin(&root, &csv_path, false).unwrap();
         // No email should be added (case-insensitive dedup), and linkedin tag already present
-        // So no fields changed -> not in updated list
+        // So no fields changed -> counted as skipped, not updated
         assert_eq!(result.updated.len(), 0);
+        assert_eq!(result.skipped.len(), 1, "no-change match should be skipped");
+        assert!(result.skipped[0].reason.contains("no changes"), "reason should mention no changes");
     }
 
     #[test]
@@ -978,8 +980,10 @@ etag: """#);
         );
 
         let result = import_linkedin(&root, &csv_path, false).unwrap();
-        // linkedin tag already present, nothing else to update
+        // linkedin tag already present, nothing else to update -> counted as skipped
         assert_eq!(result.updated.len(), 0);
+        assert_eq!(result.skipped.len(), 1, "no-change match should be skipped");
+        assert!(result.skipped[0].reason.contains("no changes"), "reason should mention no changes");
     }
 
     #[test]
@@ -993,13 +997,13 @@ etag: """#);
         let result = import_linkedin(&root, &csv_path, true).unwrap();
         assert!(result.dry_run);
         assert_eq!(result.created.len(), 1);
-
-        // The contact::add function DOES create the file (even in dry_run),
-        // but let's check that the updated content wasn't written back
-        // Actually, for new contacts, add() creates the file. This is an
-        // implementation detail - dry_run primarily affects updates.
-        // The important thing is the result is correct.
         assert_eq!(result.created[0].name, "Jane Doe");
+
+        // Dry-run must NOT create any file on disk
+        assert!(
+            !root.join("contacts/jane-doe.md").exists(),
+            "dry_run should not create contact file on disk"
+        );
     }
 
     #[test]
@@ -1197,6 +1201,62 @@ etag: """#);
         assert_eq!(parse_connected_on(""), None);
         // Invalid
         assert_eq!(parse_connected_on("not a date"), None);
+    }
+
+    #[test]
+    fn test_reimport_no_changes_counted_as_skipped() {
+        let (_tmp, root) = setup_test_root();
+
+        // Contact with ALL LinkedIn fields already populated
+        make_contact(&root, "jane-doe.md", r#"id: "ddd-111"
+name: "Jane Doe"
+aliases: []
+pronouns: ""
+email:
+  - "jane@example.com"
+phone: []
+address: []
+company: "Acme Inc"
+role: "Engineer"
+industry: ""
+linkedin: ""
+twitter: ""
+facebook: ""
+instagram: ""
+github: ""
+website: ""
+birthday:
+interests: []
+family: []
+how_we_met: ""
+met_date: 2024-01-15
+introduced_by: ""
+relationship: friend
+tags:
+  - "linkedin"
+status: active
+follow_up_cadence: ""
+last_contacted:
+next_follow_up:
+priority: medium
+source: linkedin
+source_id: ""
+etag: """#);
+
+        let csv_path = write_csv(
+            &root,
+            &format!("{CSV_HEADER}\nJane,Doe,jane@example.com,Acme Inc,Engineer,15 Jan 2024"),
+        );
+
+        let result = import_linkedin(&root, &csv_path, false).unwrap();
+        assert_eq!(result.skipped.len(), 1, "no-change re-import should be skipped");
+        assert!(
+            result.skipped[0].reason.contains("no changes"),
+            "skip reason should mention no changes, got: {}",
+            result.skipped[0].reason
+        );
+        assert_eq!(result.updated.len(), 0, "should not be in updated list");
+        assert_eq!(result.created.len(), 0, "should not be in created list");
     }
 
     #[test]
