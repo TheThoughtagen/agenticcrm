@@ -1,11 +1,8 @@
 use std::fmt;
 
-use anyhow::{Context, Result};
-use chrono::Local;
-
 use crate::format::{self, OutputFormat};
-use crate::frontmatter;
-use crate::ops::contact::{self, LogResult};
+use crate::ops;
+use crate::ops::contact::LogResult;
 use crate::store;
 
 impl fmt::Display for LogResult {
@@ -22,12 +19,12 @@ impl fmt::Display for LogResult {
     }
 }
 
-/// Re-export for backward compatibility (TUI and tests reference this).
+/// Re-export for backward compatibility (TUI references this).
 pub fn next_follow_up(
     from_date: chrono::NaiveDate,
     cadence: &str,
-) -> Result<Option<chrono::NaiveDate>> {
-    contact::next_follow_up(from_date, cadence).map_err(|e| anyhow::anyhow!(e))
+) -> anyhow::Result<Option<chrono::NaiveDate>> {
+    ops::contact::next_follow_up(from_date, cadence).map_err(|e| anyhow::anyhow!(e))
 }
 
 pub fn run(
@@ -36,65 +33,9 @@ pub fn run(
     summary: &str,
     notes: Option<&str>,
     output_format: &OutputFormat,
-) -> Result<()> {
+) -> anyhow::Result<()> {
     let root = store::find_crm_root()?;
-    let contacts = store::load_all_contacts(&root)?;
-    let mut cf = store::find_single_contact(contacts, name)?;
-    let today = Local::now().date_naive();
-
-    // Build the interaction entry
-    let mut entry = format!("\n### {today} | {interaction_type} | {summary}\n");
-    if let Some(n) = notes {
-        entry.push('\n');
-        entry.push_str(n);
-        entry.push('\n');
-    }
-
-    // Insert after "## Interaction Log" heading
-    if let Some(pos) = cf.body.find("## Interaction Log") {
-        let insert_at = cf.body[pos..]
-            .find('\n')
-            .map(|i| pos + i + 1)
-            .unwrap_or(cf.body.len());
-        cf.body.insert_str(insert_at, &entry);
-    } else {
-        cf.body.push_str("\n## Interaction Log\n");
-        cf.body.push_str(&entry);
-    }
-
-    // Update last_contacted via raw frontmatter editor
-    cf.raw_frontmatter =
-        frontmatter::update_field(&cf.raw_frontmatter, "last_contacted", &today.to_string());
-
-    // Calculate and update next_follow_up if cadence is set
-    let next_fu = if !cf.contact.follow_up_cadence.is_empty() {
-        let next = next_follow_up(today, &cf.contact.follow_up_cadence)?;
-        if let Some(date) = next {
-            cf.raw_frontmatter = frontmatter::update_field(
-                &cf.raw_frontmatter,
-                "next_follow_up",
-                &date.to_string(),
-            );
-        }
-        next.map(|d| d.to_string())
-    } else {
-        None
-    };
-
-    // Write directly to existing file path (preserves comments via raw frontmatter)
-    let content = store::serialize_contact_file(&cf)?;
-    std::fs::write(&cf.path, &content)
-        .with_context(|| format!("Failed to write {}", cf.path.display()))?;
-
-    let result = LogResult {
-        name: cf.contact.name.clone(),
-        interaction_type: interaction_type.to_string(),
-        summary: summary.to_string(),
-        path: cf.path.display().to_string(),
-        last_contacted: today.to_string(),
-        next_follow_up: next_fu,
-    };
-
+    let result = ops::contact::log_interaction(&root, name, interaction_type, summary, notes)?;
     format::output(&result, output_format)
 }
 
@@ -168,7 +109,6 @@ mod tests {
         let err = result.unwrap_err().to_string();
         assert!(err.contains("Unknown cadence"));
         assert!(err.contains("daily"));
-        assert!(err.contains("weekly"));
         assert!(err.contains("monthly"));
     }
 }

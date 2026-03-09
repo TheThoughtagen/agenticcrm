@@ -1,9 +1,9 @@
 use std::fmt;
 
-use anyhow::Result;
 use colored::Colorize;
 
 use crate::format::{self, OutputFormat};
+use crate::ops;
 use crate::ops::contact::ContactDetail;
 use crate::store;
 
@@ -57,14 +57,8 @@ impl fmt::Display for ContactDetail {
     }
 }
 
-pub fn run(name: &str, output_format: &OutputFormat) -> Result<()> {
+pub fn run(name: &str, output_format: &OutputFormat) -> anyhow::Result<()> {
     let root = store::find_crm_root()?;
-    let contacts = store::load_all_contacts(&root)?;
-    let cf = store::find_single_contact(contacts, name)?;
-    let detail = ContactDetail {
-        contact: cf.contact,
-        body: cf.body,
-    };
-
+    let detail = ops::contact::show(&root, name)?;
     format::output(&detail, output_format)
 }

@@ -1,10 +1,17 @@
+use std::path::Path;
+
 use serde::Serialize;
+use uuid::Uuid;
 
 use super::OpsError;
+use crate::frontmatter;
+use crate::models::{Contact, ContactFile, Priority, Relationship, Status};
+use crate::store;
+use crate::validation;
 
-// Re-export chrono types needed by next_follow_up callers
+// Re-export chrono types needed by callers
 pub use chrono::NaiveDate;
-use chrono::{Duration, Months};
+use chrono::{Duration, Local, Months};
 
 /// Known array fields in the contact schema
 pub const ARRAY_FIELDS: &[&str] = &[
@@ -43,7 +50,7 @@ pub struct SearchMatch {
 #[derive(Debug, Serialize)]
 pub struct ContactDetail {
     #[serde(flatten)]
-    pub contact: crate::models::Contact,
+    pub contact: Contact,
     pub body: String,
 }
 
@@ -94,7 +101,424 @@ pub struct ArchiveResult {
     pub to_path: String,
 }
 
-// ── Business logic functions (stubs for Task 1, filled in Task 2) ───────────
+// ── Internal helpers ────────────────────────────────────────────────────────
+
+/// Find a single contact by fuzzy name match, returning OpsError on failure.
+fn find_contact(contacts: Vec<ContactFile>, name: &str) -> Result<ContactFile, OpsError> {
+    let name_lower = name.to_lowercase();
+
+    let mut matches: Vec<_> = contacts
+        .into_iter()
+        .filter(|cf| cf.contact.name.to_lowercase().contains(&name_lower))
+        .collect();
+
+    if matches.is_empty() {
+        return Err(OpsError::NotFound(name.to_string()));
+    }
+    if matches.len() > 1 {
+        let names: Vec<_> = matches.iter().map(|cf| cf.contact.name.clone()).collect();
+        return Err(OpsError::AmbiguousMatch {
+            query: name.to_string(),
+            matches: names.join(", "),
+        });
+    }
+
+    Ok(matches.remove(0))
+}
+
+/// Map an anyhow::Error to OpsError::Internal
+fn internal(e: anyhow::Error) -> OpsError {
+    OpsError::Internal(e.to_string())
+}
+
+// ── Ops functions ───────────────────────────────────────────────────────────
+
+/// Create a new contact with the given name.
+pub fn add(root: &Path, name: &str) -> Result<AddResult, OpsError> {
+    let contact = Contact {
+        id: Uuid::new_v4().to_string(),
+        name: name.to_string(),
+        aliases: vec![],
+        pronouns: String::new(),
+        email: vec![],
+        phone: vec![],
+        address: vec![],
+        company: String::new(),
+        role: String::new(),
+        industry: String::new(),
+        linkedin: String::new(),
+        twitter: String::new(),
+        facebook: String::new(),
+        instagram: String::new(),
+        github: String::new(),
+        website: String::new(),
+        birthday: None,
+        interests: vec![],
+        family: vec![],
+        how_we_met: String::new(),
+        met_date: None,
+        introduced_by: String::new(),
+        relationship: Some(Relationship::Acquaintance),
+        tags: vec![],
+        status: Some(Status::Active),
+        follow_up_cadence: String::new(),
+        last_contacted: None,
+        next_follow_up: None,
+        priority: Some(Priority::Medium),
+        source: "manual".to_string(),
+        source_id: String::new(),
+        etag: String::new(),
+    };
+
+    let raw_frontmatter = store::generate_raw_frontmatter(&contact, root).map_err(internal)?;
+
+    let cf = ContactFile {
+        contact,
+        body: "## Notes\n\n\n## Interaction Log\n".to_string(),
+        path: root.join("contacts"),
+        raw_frontmatter,
+    };
+
+    let path = store::write_contact(root, &cf).map_err(internal)?;
+
+    Ok(AddResult {
+        name: cf.contact.name.clone(),
+        path: path.display().to_string(),
+    })
+}
+
+/// List all contacts, optionally filtered by tag.
+pub fn list(root: &Path, tag: Option<&str>) -> Result<Vec<ContactSummary>, OpsError> {
+    let mut contacts = store::load_all_contacts(root).map_err(internal)?;
+    contacts.sort_by(|a, b| a.contact.name.cmp(&b.contact.name));
+
+    if let Some(tag) = tag {
+        contacts.retain(|cf| cf.contact.tags.iter().any(|t| t == tag));
+    }
+
+    let summaries = contacts
+        .iter()
+        .map(|cf| {
+            let c = &cf.contact;
+            ContactSummary {
+                name: c.name.clone(),
+                company: c.company.clone(),
+                status: c
+                    .status
+                    .as_ref()
+                    .map(|s| format!("{s:?}"))
+                    .unwrap_or_default(),
+                tags: c.tags.clone(),
+            }
+        })
+        .collect();
+
+    Ok(summaries)
+}
+
+/// Search contacts by query across name, company, role, tags, email, and notes.
+pub fn search(root: &Path, query: &str) -> Result<Vec<SearchMatch>, OpsError> {
+    let contacts = store::load_all_contacts(root).map_err(internal)?;
+    let query_lower = query.to_lowercase();
+
+    let matches: Vec<_> = contacts
+        .into_iter()
+        .filter(|cf| {
+            let c = &cf.contact;
+            c.name.to_lowercase().contains(&query_lower)
+                || c.company.to_lowercase().contains(&query_lower)
+                || c.role.to_lowercase().contains(&query_lower)
+                || c.tags.iter().any(|t| t.to_lowercase().contains(&query_lower))
+                || c.email.iter().any(|e| e.to_lowercase().contains(&query_lower))
+                || cf.body.to_lowercase().contains(&query_lower)
+        })
+        .collect();
+
+    let results = matches
+        .iter()
+        .map(|cf| SearchMatch {
+            name: cf.contact.name.clone(),
+            company: cf.contact.company.clone(),
+            path: cf.path.display().to_string(),
+        })
+        .collect();
+
+    Ok(results)
+}
+
+/// Show full details for a contact matched by name.
+pub fn show(root: &Path, name: &str) -> Result<ContactDetail, OpsError> {
+    let contacts = store::load_all_contacts(root).map_err(internal)?;
+    let cf = find_contact(contacts, name)?;
+
+    Ok(ContactDetail {
+        contact: cf.contact,
+        body: cf.body,
+    })
+}
+
+/// Edit a contact's fields using key=value pairs.
+pub fn edit(root: &Path, name: &str, sets: &[String]) -> Result<EditResult, OpsError> {
+    if sets.is_empty() {
+        return Err(OpsError::ValidationFailed(
+            "No --set arguments provided. Usage: acrm edit \"name\" --set key=value".to_string(),
+        ));
+    }
+
+    let contacts = store::load_all_contacts(root).map_err(internal)?;
+    let mut cf = find_contact(contacts, name)?;
+
+    let mut updated_fields = Vec::new();
+
+    for set_arg in sets {
+        let (key, value) = set_arg
+            .split_once('=')
+            .ok_or_else(|| {
+                OpsError::ValidationFailed(format!(
+                    "Invalid --set format '{set_arg}', expected key=value"
+                ))
+            })?;
+
+        let key = key.trim();
+        let value = value.trim();
+
+        if ARRAY_FIELDS.contains(&key) {
+            let values: Vec<String> = value
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            cf.raw_frontmatter =
+                frontmatter::update_array_field(&cf.raw_frontmatter, key, &values);
+        } else {
+            let yaml_value = if needs_quoting(value) {
+                format!("\"{}\"", value.replace('"', "\\\""))
+            } else {
+                value.to_string()
+            };
+            cf.raw_frontmatter =
+                frontmatter::update_field(&cf.raw_frontmatter, key, &yaml_value);
+        }
+
+        updated_fields.push(key.to_string());
+    }
+
+    // Re-parse the updated frontmatter to get the updated Contact struct
+    let updated_contact: Contact = serde_yaml::from_str(&cf.raw_frontmatter)
+        .map_err(|e| OpsError::Internal(format!("Updated frontmatter produced invalid YAML: {e}")))?;
+
+    // Validate before writing
+    let errors = validation::validate_contact(&updated_contact);
+    if !errors.is_empty() {
+        let messages: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+        return Err(OpsError::ValidationFailed(messages.join("; ")));
+    }
+
+    cf.contact = updated_contact;
+
+    // Write directly to the existing path (preserving filename)
+    let content = store::serialize_contact_file(&cf).map_err(internal)?;
+    std::fs::write(&cf.path, &content)?;
+
+    Ok(EditResult {
+        name: cf.contact.name.clone(),
+        updated_fields,
+        path: cf.path.display().to_string(),
+    })
+}
+
+/// Log an interaction with a contact.
+pub fn log_interaction(
+    root: &Path,
+    name: &str,
+    interaction_type: &str,
+    summary: &str,
+    notes: Option<&str>,
+) -> Result<LogResult, OpsError> {
+    let contacts = store::load_all_contacts(root).map_err(internal)?;
+    let mut cf = find_contact(contacts, name)?;
+    let today = Local::now().date_naive();
+
+    // Build the interaction entry
+    let mut entry = format!("\n### {today} | {interaction_type} | {summary}\n");
+    if let Some(n) = notes {
+        entry.push('\n');
+        entry.push_str(n);
+        entry.push('\n');
+    }
+
+    // Insert after "## Interaction Log" heading
+    if let Some(pos) = cf.body.find("## Interaction Log") {
+        let insert_at = cf.body[pos..]
+            .find('\n')
+            .map(|i| pos + i + 1)
+            .unwrap_or(cf.body.len());
+        cf.body.insert_str(insert_at, &entry);
+    } else {
+        cf.body.push_str("\n## Interaction Log\n");
+        cf.body.push_str(&entry);
+    }
+
+    // Update last_contacted via raw frontmatter editor
+    cf.raw_frontmatter =
+        frontmatter::update_field(&cf.raw_frontmatter, "last_contacted", &today.to_string());
+
+    // Calculate and update next_follow_up if cadence is set
+    let next_fu = if !cf.contact.follow_up_cadence.is_empty() {
+        let next = next_follow_up(today, &cf.contact.follow_up_cadence)?;
+        if let Some(date) = next {
+            cf.raw_frontmatter = frontmatter::update_field(
+                &cf.raw_frontmatter,
+                "next_follow_up",
+                &date.to_string(),
+            );
+        }
+        next.map(|d| d.to_string())
+    } else {
+        None
+    };
+
+    // Write directly to existing file path (preserves comments via raw frontmatter)
+    let content = store::serialize_contact_file(&cf).map_err(internal)?;
+    std::fs::write(&cf.path, &content)?;
+
+    Ok(LogResult {
+        name: cf.contact.name.clone(),
+        interaction_type: interaction_type.to_string(),
+        summary: summary.to_string(),
+        path: cf.path.display().to_string(),
+        last_contacted: today.to_string(),
+        next_follow_up: next_fu,
+    })
+}
+
+/// Get contacts due for follow-up.
+pub fn due(root: &Path) -> Result<Vec<DueContact>, OpsError> {
+    let contacts = store::load_all_contacts(root).map_err(internal)?;
+    let today = Local::now().date_naive();
+
+    let mut due_contacts: Vec<_> = contacts
+        .into_iter()
+        .filter(|cf| {
+            cf.contact
+                .next_follow_up
+                .is_some_and(|d| d <= today)
+        })
+        .collect();
+
+    due_contacts.sort_by_key(|cf| cf.contact.next_follow_up);
+
+    let results = due_contacts
+        .iter()
+        .map(|cf| {
+            let c = &cf.contact;
+            let follow_up = c.next_follow_up.unwrap();
+            DueContact {
+                name: c.name.clone(),
+                next_follow_up: follow_up.to_string(),
+                last_contacted: c
+                    .last_contacted
+                    .map(|d| d.to_string())
+                    .unwrap_or_else(|| "never".to_string()),
+                overdue_days: (today - follow_up).num_days(),
+            }
+        })
+        .collect();
+
+    Ok(results)
+}
+
+/// Find a contact that would be deleted (first phase of two-phase delete).
+pub fn find_delete_target(root: &Path, name: &str) -> Result<DeleteTarget, OpsError> {
+    let contacts = store::load_all_contacts(root).map_err(internal)?;
+    let cf = find_contact(contacts, name)?;
+
+    Ok(DeleteTarget {
+        name: cf.contact.name,
+        path: cf.path.display().to_string(),
+    })
+}
+
+/// Actually delete a contact file (second phase of two-phase delete).
+pub fn confirm_delete(root: &Path, name: &str) -> Result<DeleteResult, OpsError> {
+    let contacts = store::load_all_contacts(root).map_err(internal)?;
+    let cf = find_contact(contacts, name)?;
+
+    std::fs::remove_file(&cf.path)?;
+
+    Ok(DeleteResult {
+        name: cf.contact.name,
+        path: cf.path.display().to_string(),
+        deleted: true,
+    })
+}
+
+/// Archive a contact (set status to archived, move to archive/).
+pub fn archive(root: &Path, name: &str) -> Result<ArchiveResult, OpsError> {
+    let contacts = store::load_all_contacts(root).map_err(internal)?;
+    let mut cf = find_contact(contacts, name)?;
+
+    // Update status to archived
+    cf.raw_frontmatter = frontmatter::update_field(&cf.raw_frontmatter, "status", "archived");
+
+    // Ensure archive directory exists
+    let archive_dir = root.join("archive");
+    std::fs::create_dir_all(&archive_dir)?;
+
+    // Write to archive/
+    let filename = cf
+        .path
+        .file_name()
+        .ok_or_else(|| OpsError::Internal("Contact file has no filename".to_string()))?
+        .to_owned();
+    let archive_path = archive_dir.join(&filename);
+
+    let content = store::serialize_contact_file(&cf).map_err(internal)?;
+    std::fs::write(&archive_path, &content)?;
+
+    // Remove original from contacts/
+    std::fs::remove_file(&cf.path)?;
+
+    Ok(ArchiveResult {
+        name: cf.contact.name,
+        action: "Archived".to_string(),
+        from_path: cf.path.display().to_string(),
+        to_path: archive_path.display().to_string(),
+    })
+}
+
+/// Unarchive a contact (set status to active, move back to contacts/).
+pub fn unarchive(root: &Path, name: &str) -> Result<ArchiveResult, OpsError> {
+    let archive_dir = root.join("archive");
+    let contacts = store::load_contacts_from_dir(&archive_dir).map_err(internal)?;
+    let mut cf = find_contact(contacts, name)?;
+
+    // Update status to active
+    cf.raw_frontmatter = frontmatter::update_field(&cf.raw_frontmatter, "status", "active");
+
+    // Write to contacts/
+    let filename = cf
+        .path
+        .file_name()
+        .ok_or_else(|| OpsError::Internal("Contact file has no filename".to_string()))?
+        .to_owned();
+    let contacts_path = root.join("contacts").join(&filename);
+
+    let content = store::serialize_contact_file(&cf).map_err(internal)?;
+    std::fs::write(&contacts_path, &content)?;
+
+    // Remove from archive/
+    std::fs::remove_file(&cf.path)?;
+
+    Ok(ArchiveResult {
+        name: cf.contact.name,
+        action: "Unarchived".to_string(),
+        from_path: cf.path.display().to_string(),
+        to_path: contacts_path.display().to_string(),
+    })
+}
+
+// ── Utility functions ───────────────────────────────────────────────────────
 
 /// Calculate the next follow-up date from a given date and cadence string.
 /// Returns Ok(None) if cadence is empty.

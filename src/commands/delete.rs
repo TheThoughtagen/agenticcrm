@@ -1,9 +1,9 @@
 use std::fmt;
 
-use anyhow::Result;
 use dialoguer::Confirm;
 
 use crate::format::{self, OutputFormat};
+use crate::ops;
 use crate::ops::contact::DeleteResult;
 use crate::store;
 
@@ -17,10 +17,9 @@ impl fmt::Display for DeleteResult {
     }
 }
 
-pub fn run(name: &str, yes: bool, format: &OutputFormat) -> Result<()> {
+pub fn run(name: &str, yes: bool, format: &OutputFormat) -> anyhow::Result<()> {
     let root = store::find_crm_root()?;
-    let contacts = store::load_all_contacts(&root)?;
-    let cf = store::find_single_contact(contacts, name)?;
+    let target = ops::contact::find_delete_target(&root, name)?;
 
     let confirmed = if yes {
         true
@@ -28,25 +27,19 @@ pub fn run(name: &str, yes: bool, format: &OutputFormat) -> Result<()> {
         Confirm::new()
             .with_prompt(format!(
                 "Delete {}? This cannot be undone.",
-                cf.contact.name
+                target.name
             ))
             .default(false)
             .interact()?
     };
 
     if confirmed {
-        std::fs::remove_file(&cf.path)?;
-
-        let result = DeleteResult {
-            name: cf.contact.name,
-            path: cf.path.display().to_string(),
-            deleted: true,
-        };
+        let result = ops::contact::confirm_delete(&root, name)?;
         format::output(&result, format)
     } else {
         let result = DeleteResult {
-            name: cf.contact.name,
-            path: cf.path.display().to_string(),
+            name: target.name,
+            path: target.path,
             deleted: false,
         };
         format::output(&result, format)

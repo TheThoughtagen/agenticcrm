@@ -1,9 +1,9 @@
 use std::fmt;
 
-use anyhow::Result;
 use colored::Colorize;
 
 use crate::format::{self, OutputFormat};
+use crate::ops;
 use crate::ops::contact::ContactSummary;
 use crate::store;
 
@@ -30,39 +30,17 @@ impl fmt::Display for ContactSummary {
     }
 }
 
-pub fn run(tag: Option<&str>, output_format: &OutputFormat) -> Result<()> {
+pub fn run(tag: Option<&str>, output_format: &OutputFormat) -> anyhow::Result<()> {
     let root = store::find_crm_root()?;
-    let mut contacts = store::load_all_contacts(&root)?;
-    contacts.sort_by(|a, b| a.contact.name.cmp(&b.contact.name));
+    let summaries = ops::contact::list(&root, tag)?;
 
-    if let Some(tag) = tag {
-        contacts.retain(|cf| cf.contact.tags.iter().any(|t| t == tag));
-    }
-
-    if contacts.is_empty() {
+    if summaries.is_empty() {
         match output_format {
             OutputFormat::Human => println!("No contacts found."),
             OutputFormat::Json => println!("[]"),
         }
         return Ok(());
     }
-
-    let summaries: Vec<ContactSummary> = contacts
-        .iter()
-        .map(|cf| {
-            let c = &cf.contact;
-            ContactSummary {
-                name: c.name.clone(),
-                company: c.company.clone(),
-                status: c
-                    .status
-                    .as_ref()
-                    .map(|s| format!("{s:?}"))
-                    .unwrap_or_default(),
-                tags: c.tags.clone(),
-            }
-        })
-        .collect();
 
     format::output_list(&summaries, output_format, "contacts")
 }

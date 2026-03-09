@@ -1,10 +1,9 @@
 use std::fmt;
 
-use anyhow::Result;
-use chrono::Local;
 use colored::Colorize;
 
 use crate::format::{self, OutputFormat};
+use crate::ops;
 use crate::ops::contact::DueContact;
 use crate::store;
 
@@ -28,46 +27,17 @@ impl fmt::Display for DueContact {
     }
 }
 
-pub fn run(output_format: &OutputFormat) -> Result<()> {
+pub fn run(output_format: &OutputFormat) -> anyhow::Result<()> {
     let root = store::find_crm_root()?;
-    let contacts = store::load_all_contacts(&root)?;
-    let today = Local::now().date_naive();
+    let results = ops::contact::due(&root)?;
 
-    let mut due: Vec<_> = contacts
-        .into_iter()
-        .filter(|cf| {
-            cf.contact
-                .next_follow_up
-                .is_some_and(|d| d <= today)
-        })
-        .collect();
-
-    due.sort_by_key(|cf| cf.contact.next_follow_up);
-
-    if due.is_empty() {
+    if results.is_empty() {
         match output_format {
             OutputFormat::Human => println!("No follow-ups due. You're all caught up."),
             OutputFormat::Json => println!("[]"),
         }
         return Ok(());
     }
-
-    let results: Vec<DueContact> = due
-        .iter()
-        .map(|cf| {
-            let c = &cf.contact;
-            let follow_up = c.next_follow_up.unwrap();
-            DueContact {
-                name: c.name.clone(),
-                next_follow_up: follow_up.to_string(),
-                last_contacted: c
-                    .last_contacted
-                    .map(|d| d.to_string())
-                    .unwrap_or_else(|| "never".to_string()),
-                overdue_days: (today - follow_up).num_days(),
-            }
-        })
-        .collect();
 
     format::output_list(&results, output_format, "due")
 }

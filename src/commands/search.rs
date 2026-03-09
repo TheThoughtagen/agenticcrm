@@ -1,9 +1,9 @@
 use std::fmt;
 
-use anyhow::Result;
 use colored::Colorize;
 
 use crate::format::{self, OutputFormat};
+use crate::ops;
 use crate::ops::contact::SearchMatch;
 use crate::store;
 
@@ -24,40 +24,17 @@ impl fmt::Display for SearchMatch {
     }
 }
 
-pub fn run(query: &str, output_format: &OutputFormat) -> Result<()> {
+pub fn run(query: &str, output_format: &OutputFormat) -> anyhow::Result<()> {
     let root = store::find_crm_root()?;
-    let contacts = store::load_all_contacts(&root)?;
-    let query_lower = query.to_lowercase();
+    let results = ops::contact::search(&root, query)?;
 
-    let matches: Vec<_> = contacts
-        .into_iter()
-        .filter(|cf| {
-            let c = &cf.contact;
-            c.name.to_lowercase().contains(&query_lower)
-                || c.company.to_lowercase().contains(&query_lower)
-                || c.role.to_lowercase().contains(&query_lower)
-                || c.tags.iter().any(|t| t.to_lowercase().contains(&query_lower))
-                || c.email.iter().any(|e| e.to_lowercase().contains(&query_lower))
-                || cf.body.to_lowercase().contains(&query_lower)
-        })
-        .collect();
-
-    if matches.is_empty() {
+    if results.is_empty() {
         match output_format {
             OutputFormat::Human => println!("No matches for '{query}'."),
             OutputFormat::Json => println!("[]"),
         }
         return Ok(());
     }
-
-    let results: Vec<SearchMatch> = matches
-        .iter()
-        .map(|cf| SearchMatch {
-            name: cf.contact.name.clone(),
-            company: cf.contact.company.clone(),
-            path: cf.path.display().to_string(),
-        })
-        .collect();
 
     format::output_list(&results, output_format, "match(es)")
 }
