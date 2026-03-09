@@ -90,11 +90,12 @@ Plans:
   2. Re-importing the same CSV does not create duplicates (matched by name and email)
   3. Re-importing an updated CSV detects and applies only changed fields, leaving manually-edited CRM fields intact
   4. All available LinkedIn CSV columns (first name, last name, email, company, position, connected on) are mapped to the contact schema
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
 - [ ] 10-01-PLAN.md — CSV parsing, dedup matching, fill-empty merge, ImportResult types in ops/import.rs
 - [ ] 10-02-PLAN.md — CLI import subcommand, Display formatting, main.rs wiring
+- [ ] 10-03-PLAN.md — Gap closure: fix dry-run file creation and skipped counting
 
 ## Progress
 
@@ -111,7 +112,7 @@ Plans:
 | 7. Operations Layer | 2/2 | Complete   | 2026-03-09 | - |
 | 8. Bulk Operations & Query Engine | v1.2 | 1/2 | In progress | - |
 | 9. MCP Server | 2/2 | Complete   | 2026-03-09 | - |
-| 10. LinkedIn Import | 2/2 | Complete    | 2026-03-09 | - |
+| 10. LinkedIn Import | 2/3 | In progress | - | - |
 
 ### Phase 11: Documentation & Release Readiness
 **Goal:** Repository is ready for public GitHub with comprehensive README, setup guides, and contributor docs
