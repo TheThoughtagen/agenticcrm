@@ -43,11 +43,11 @@
   1. Every CLI command (add, list, search, show, edit, log, due, delete, archive) delegates to a function in the ops module
   2. All existing CLI commands produce identical output and behavior before and after the refactor
   3. The ops module functions accept plain arguments and return `Result<T>` -- no CLI or clap types leak into ops
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 07-01: TBD
-- [ ] 07-02: TBD
+- [ ] 07-01-PLAN.md — Create ops module and extract CRUD business logic from CLI handlers
+- [ ] 07-02-PLAN.md — Extract sync operations, wire TUI to ops, zero compiler warnings
 
 ### Phase 8: Bulk Operations & Query Engine
 **Goal**: Users can query contacts with field predicates and apply bulk changes in a single command, with safety guards and Unix composability
