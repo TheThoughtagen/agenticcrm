@@ -199,7 +199,23 @@ pub fn run_bulk(
             })
             .collect();
 
-        return format::output_list(&results, fmt, "contact(s) matched");
+        match fmt {
+            OutputFormat::Human => {
+                let display_count = results.len().min(20);
+                for item in &results[..display_count] {
+                    println!("{item}");
+                }
+                if results.len() > 20 {
+                    println!("  ...and {} more", results.len() - 20);
+                }
+                println!("\n{} contact(s) matched", results.len());
+            }
+            OutputFormat::Json => {
+                let json = serde_json::to_string_pretty(&results)?;
+                println!("{json}");
+            }
+        }
+        return Ok(());
     }
 
     // Action mode: preview, confirm, execute
@@ -338,7 +354,23 @@ pub fn run_bulk_update(
             })
             .collect();
 
-        return format::output_list(&results, fmt, "contact(s) resolved");
+        match fmt {
+            OutputFormat::Human => {
+                let display_count = results.len().min(20);
+                for item in &results[..display_count] {
+                    println!("{item}");
+                }
+                if results.len() > 20 {
+                    println!("  ...and {} more", results.len() - 20);
+                }
+                println!("\n{} contact(s) resolved", results.len());
+            }
+            OutputFormat::Json => {
+                let json = serde_json::to_string_pretty(&results)?;
+                println!("{json}");
+            }
+        }
+        return Ok(());
     }
 
     let action_desc = describe_action(sets, delete, archive, add_tags, remove_tags);
