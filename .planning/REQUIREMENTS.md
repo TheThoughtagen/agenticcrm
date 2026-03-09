@@ -78,6 +78,14 @@ Requirements for v1.2 milestone (MCP, Bulk Ops & LinkedIn). Each maps to roadmap
 - [ ] **LNKD-03**: Re-import detects changes and updates only modified fields
 - [ ] **LNKD-04**: Import maps all available LinkedIn CSV fields to contact schema
 
+### Documentation & Release Readiness
+
+- [ ] **DOCS-01**: README.md explains what AgenticCRM is, how to install, and shows key usage examples
+- [ ] **DOCS-02**: MCP setup guide shows how to connect to Claude Code / Claude Desktop
+- [ ] **DOCS-03**: LICENSE file exists with chosen license (MIT)
+- [ ] **DOCS-04**: CONTRIBUTING.md explains how to build, test, and contribute
+- [ ] **DOCS-05**: `cargo install` from the repo works for end users (Cargo.toml metadata complete)
+
 ## Future Requirements
 
 ### Playwright LinkedIn Automation
@@ -149,13 +157,18 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LNKD-02 | Phase 10 | Pending |
 | LNKD-03 | Phase 10 | Pending |
 | LNKD-04 | Phase 10 | Pending |
+| DOCS-01 | Phase 11 | Pending |
+| DOCS-02 | Phase 11 | Pending |
+| DOCS-03 | Phase 11 | Pending |
+| DOCS-04 | Phase 11 | Pending |
+| DOCS-05 | Phase 11 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 15 total (all complete)
-- v1.2 requirements: 25 total
-- Mapped to phases: 25/25
+- v1.2 requirements: 30 total (includes DOCS-01 through DOCS-05)
+- Mapped to phases: 30/30
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-07*
-*Last updated: 2026-03-09 after v1.2 roadmap creation*
+*Last updated: 2026-03-09 after Phase 11 planning*

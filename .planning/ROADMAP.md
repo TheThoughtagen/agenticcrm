@@ -112,3 +112,19 @@ Plans:
 | 8. Bulk Operations & Query Engine | v1.2 | 1/2 | In progress | - |
 | 9. MCP Server | 2/2 | Complete   | 2026-03-09 | - |
 | 10. LinkedIn Import | v1.2 | 0/? | Not started | - |
+
+### Phase 11: Documentation & Release Readiness
+**Goal:** Repository is ready for public GitHub with comprehensive README, setup guides, and contributor docs
+**Depends on**: Phase 9 (MCP server complete)
+**Requirements**: DOCS-01, DOCS-02, DOCS-03, DOCS-04, DOCS-05
+**Success Criteria** (what must be TRUE):
+  1. README.md explains what AgenticCRM is, how to install, and shows key usage examples
+  2. MCP setup guide shows how to connect to Claude Code / Claude Desktop
+  3. LICENSE file exists with chosen license
+  4. CONTRIBUTING.md explains how to build, test, and contribute
+  5. `cargo install` from the repo works for end users
+**Plans**: 2 plans
+
+Plans:
+- [ ] 11-01-PLAN.md — README.md rewrite, LICENSE file, Cargo.toml metadata
+- [ ] 11-02-PLAN.md — MCP setup guide and CONTRIBUTING.md
