@@ -3,9 +3,10 @@
 **Defined:** 2026-03-07
 **Core Value:** Your contacts and relationship history are always accessible, portable, and under your control
 
-## v1.1 Requirements
+## v1.1 Requirements (Complete)
 
-Requirements for two-way iCloud sync milestone. Each maps to roadmap phases.
+<details>
+<summary>All 15 requirements complete — shipped 2026-03-08</summary>
 
 ### Push Infrastructure
 
@@ -34,43 +35,73 @@ Requirements for two-way iCloud sync milestone. Each maps to roadmap phases.
 - [x] **BIDI-01**: `acrm sync` performs pull-then-push in one command
 - [x] **BIDI-02**: User can still run `acrm sync pull` and `acrm sync push` separately
 
-## v2 Requirements
+</details>
 
-Deferred to future release. Tracked but not in current roadmap.
+## v1.2 Requirements
 
-### Agent Integration
+Requirements for v1.2 milestone (MCP, Bulk Ops & LinkedIn). Each maps to roadmap phases.
 
-- **MCP-01**: MCP server exposes CRM as tool server for AI agents
-- **MCP-02**: AI agents can search, read, and update contacts via MCP
+### Operations Layer
 
-### Auto-Push
+- [ ] **OPS-01**: Business logic extracted from CLI handlers into shared ops module
+- [ ] **OPS-02**: All existing CLI commands delegate to ops layer (no behavior change)
 
-- **AUTO-01**: Optional `--push` flag on edit/log commands triggers immediate sync
-- **AUTO-02**: Auto-push respects selective sync filters
+### MCP Server
+
+- [ ] **MCP-01**: MCP server runs via `acrm serve` with stdio transport
+- [ ] **MCP-02**: MCP server supports Streamable HTTP transport for remote access
+- [ ] **MCP-03**: Agent can search contacts by name, tag, status, or free text via MCP tool
+- [ ] **MCP-04**: Agent can view full contact details via MCP tool
+- [ ] **MCP-05**: Agent can add a new contact via MCP tool
+- [ ] **MCP-06**: Agent can edit contact fields via MCP tool
+- [ ] **MCP-07**: Agent can log an interaction on a contact via MCP tool
+- [ ] **MCP-08**: Agent can delete or archive a contact via MCP tool
+- [ ] **MCP-09**: Agent can list contacts due for follow-up via MCP tool
+- [ ] **MCP-10**: Agent can trigger sync push/pull via MCP tool (configurable permission)
+- [ ] **MCP-11**: Contacts exposed as MCP resources with `contact://` URIs
+- [ ] **MCP-12**: Concurrent MCP requests don't corrupt contact files
 
 ### Bulk Operations
 
-- **BULK-01**: Mass tagging of contacts by filter
-- **BULK-02**: Pipeline-style bulk operations
+- [ ] **BULK-01**: User can query contacts with field-based predicates (`acrm bulk 'status=dormant'`)
+- [ ] **BULK-02**: User can bulk update fields on matched contacts (`--set field=value`)
+- [ ] **BULK-03**: User can bulk delete or archive matched contacts
+- [ ] **BULK-04**: User can bulk add/remove tags on matched contacts
+- [ ] **BULK-05**: Bulk operations show preview and require confirmation (or `--yes` to skip)
+- [ ] **BULK-06**: All bulk commands support `--dry-run` to preview without changes
+- [ ] **BULK-07**: JSON pipe input supported (`acrm search --json | acrm bulk-update --stdin`)
 
-### Connectors
+### LinkedIn Import
 
-- **CONN-01**: Richer LinkedIn connector (beyond CSV import)
+- [ ] **LNKD-01**: User can import LinkedIn CSV via `acrm import linkedin <file>`
+- [ ] **LNKD-02**: Import deduplicates against existing contacts by name and email
+- [ ] **LNKD-03**: Re-import detects changes and updates only modified fields
+- [ ] **LNKD-04**: Import maps all available LinkedIn CSV fields to contact schema
+
+## Future Requirements
+
+### Playwright LinkedIn Automation
+
+- **LNKD-05**: Playwright script automates LinkedIn CSV export download
+- **LNKD-06**: `acrm import linkedin --auto` triggers export + import pipeline
+
+### MCP Enhancements
+
+- **MCP-13**: MCP prompt templates for common CRM workflows
+- **MCP-14**: Bulk operations exposed as MCP tools
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| File watcher daemon (`acrm sync watch`) | Over-complex for personal tool; simpler `--push` flag preferred |
+| LinkedIn profile scraping | TOS risk, fragile DOM selectors; CSV export is safer path |
+| MCP prompt templates | Differentiator but not table stakes; defer to v1.3 |
+| HTTP+SSE transport | Deprecated in MCP spec (March 2025); use Streamable HTTP instead |
+| Async migration of full codebase | Only `acrm serve` needs tokio; keep CLI synchronous |
+| Database/indexing for bulk queries | Flat file scan is sufficient for personal scale (<10K contacts) |
+| File watcher daemon (`acrm sync watch`) | Over-complex for personal tool |
 | Field-level merge on conflicts | Massive complexity; CRM-wins is sufficient |
-| Server-wins conflict mode | Contradicts "CRM is source of truth" constraint |
-| Real-time bidirectional sync | Requires persistent connection; Apple doesn't offer webhooks |
 | Photo sync | vCard PHOTO is large (base64); CRM has no photo concept |
-| vCard group/distribution list sync | Apple-proprietary; complex semantics |
-| WebDAV-Sync (RFC 6578) sync-token | Over-optimization at personal scale |
-| Async/tokio for HTTP | reqwest blocking is a validated good decision |
-| Multi-address-book sync | iCloud typically has one; rare use case |
-| CTag quick-check optimization | Useful but not required; add later without breaking changes |
 
 ## Traceability
 
@@ -93,12 +124,38 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FILT-04 | Phase 6 | Complete |
 | BIDI-01 | Phase 6 | Complete |
 | BIDI-02 | Phase 6 | Complete |
+| OPS-01 | — | Pending |
+| OPS-02 | — | Pending |
+| MCP-01 | — | Pending |
+| MCP-02 | — | Pending |
+| MCP-03 | — | Pending |
+| MCP-04 | — | Pending |
+| MCP-05 | — | Pending |
+| MCP-06 | — | Pending |
+| MCP-07 | — | Pending |
+| MCP-08 | — | Pending |
+| MCP-09 | — | Pending |
+| MCP-10 | — | Pending |
+| MCP-11 | — | Pending |
+| MCP-12 | — | Pending |
+| BULK-01 | — | Pending |
+| BULK-02 | — | Pending |
+| BULK-03 | — | Pending |
+| BULK-04 | — | Pending |
+| BULK-05 | — | Pending |
+| BULK-06 | — | Pending |
+| BULK-07 | — | Pending |
+| LNKD-01 | — | Pending |
+| LNKD-02 | — | Pending |
+| LNKD-03 | — | Pending |
+| LNKD-04 | — | Pending |
 
 **Coverage:**
-- v1.1 requirements: 15 total
-- Mapped to phases: 15
-- Unmapped: 0
+- v1.1 requirements: 15 total (all complete)
+- v1.2 requirements: 25 total
+- Mapped to phases: 0
+- Unmapped: 25 ⚠️
 
 ---
 *Requirements defined: 2026-03-07*
-*Last updated: 2026-03-07 after roadmap creation*
+*Last updated: 2026-03-08 after v1.2 milestone requirements*
