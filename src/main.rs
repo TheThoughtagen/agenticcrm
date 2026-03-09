@@ -3,6 +3,7 @@ mod format;
 mod frontmatter;
 mod models;
 mod ops;
+pub mod query;
 mod store;
 mod sync;
 mod tui;
