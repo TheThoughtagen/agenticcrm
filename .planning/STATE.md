@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-03-08)
 ## Current Position
 
 Phase: 10 of 11 (LinkedIn Import)
-Plan: 1 of 2 complete
-Status: In Progress
-Last activity: 2026-03-09 -- Completed 10-01 (LinkedIn import ops layer)
+Plan: 2 of 2 complete
+Status: Phase Complete
+Last activity: 2026-03-09 -- Completed 10-02 (LinkedIn import CLI wiring)
 
-Progress: [########--] 80% (plan 1/2 of phase 10 complete)
+Progress: [##########] 100% (phase 10 complete)
 
 ## Performance Metrics
 
@@ -49,7 +49,7 @@ Progress: [########--] 80% (plan 1/2 of phase 10 complete)
 | 7. Operations Layer | 2/2 | 14m | 7m |
 | 8. Bulk Ops & Query Engine | 2/2 | 9m | ~5m |
 | 9. MCP Server | 2/2 | 13m | ~7m |
-| 10. LinkedIn Import | 1/2 | 4m | 4m |
+| 10. LinkedIn Import | 2/2 | 6m | 3m |
 | 11. Docs & Release | 2/3 | 4m | 2m |
 
 ## Accumulated Context
@@ -89,6 +89,8 @@ Recent decisions affecting current work:
 - [Phase 10]: Date format order: %m/%d/%y before %m/%d/%Y for correct 2-digit year parsing
 - [Phase 10]: New contacts via ops::contact::add then frontmatter post-processing for LinkedIn fields
 - [Phase 10]: Source field: only fill if truly empty, not if default 'manual'
+- [Phase 10]: Display impl for ImportResult in commands/import.rs (follows existing pattern)
+- [Phase 10]: ImportSource enum with Linkedin variant for extensible import sources
 
 ### Roadmap Evolution
 
@@ -107,5 +109,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 10-01-PLAN.md (LinkedIn import ops layer)
-Resume file: .planning/phases/10-linkedin-import/10-01-SUMMARY.md
+Stopped at: Completed 10-02-PLAN.md (LinkedIn import CLI wiring)
+Resume file: .planning/phases/10-linkedin-import/10-02-SUMMARY.md
