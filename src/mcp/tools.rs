@@ -19,7 +19,7 @@ pub struct ShowParams {
     pub name: String,
 }
 
-#[tool_router(vis = "pub")]
+#[tool_router(vis = "pub(crate)")]
 impl CrmServer {
     #[tool(description = "Search contacts by name, company, tag, email, or free text")]
     async fn search_contacts(

@@ -1,11 +1,11 @@
-pub mod server;
 pub mod tools;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use rmcp::handler::server::router::tool::ToolRouter;
-use rmcp::{ErrorData, ServiceExt};
+use rmcp::model::{ServerCapabilities, ServerInfo};
+use rmcp::{ErrorData, ServerHandler, ServiceExt, tool_handler};
 use tokio::sync::Mutex;
 
 use crate::ops::OpsError;
@@ -16,7 +16,7 @@ pub struct CrmServer {
     pub root: PathBuf,
     pub write_lock: Arc<Mutex<()>>,
     pub allow_sync: bool,
-    pub tool_router: ToolRouter<Self>,
+    tool_router: ToolRouter<Self>,
 }
 
 impl CrmServer {
@@ -27,6 +27,20 @@ impl CrmServer {
             allow_sync,
             tool_router: Self::tool_router(),
         }
+    }
+}
+
+#[tool_handler]
+impl ServerHandler for CrmServer {
+    fn get_info(&self) -> ServerInfo {
+        ServerInfo::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .build(),
+        )
+        .with_instructions(
+            "AgenticCRM - a personal CRM. Search, view, and list contacts due for follow-up.",
+        )
     }
 }
 
