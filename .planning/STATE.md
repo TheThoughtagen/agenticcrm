@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: MCP, Bulk Ops & LinkedIn
 status: unknown
-last_updated: "2026-03-09T15:47:52.779Z"
+last_updated: "2026-03-09T17:07:02.141Z"
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 13
-  completed_plans: 13
+  total_phases: 7
+  completed_phases: 7
+  total_plans: 15
+  completed_plans: 15
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Your contacts and relationship history are always accessible, portable, and under your control
-**Current focus:** Phase 9 - MCP Server (v1.2)
+**Current focus:** Phase 11 - Documentation & Release Readiness (v1.2)
 
 ## Current Position
 
-Phase: 9 of 10 (MCP Server)
-Plan: 2 of 2 complete
-Status: Phase Complete
-Last activity: 2026-03-09 -- Completed 09-02 (MCP write tools, resources, HTTP transport)
+Phase: 11 of 11 (Documentation & Release Readiness)
+Plan: 2 of 3 complete
+Status: In Progress
+Last activity: 2026-03-09 -- Completed 11-02 (MCP setup guide & CONTRIBUTING.md)
 
-Progress: [#########░] 90% (9/10 phases complete across all milestones)
+Progress: [##########] 97% (plan 2/3 of final phase complete)
 
 ## Performance Metrics
 
@@ -49,6 +49,7 @@ Progress: [#########░] 90% (9/10 phases complete across all milestones)
 | 7. Operations Layer | 2/2 | 14m | 7m |
 | 8. Bulk Ops & Query Engine | 2/2 | 9m | ~5m |
 | 9. MCP Server | 2/2 | 13m | ~7m |
+| 11. Docs & Release | 2/3 | 4m | 2m |
 
 ## Accumulated Context
 
@@ -81,6 +82,12 @@ Recent decisions affecting current work:
 - v1.2: contact:// URI scheme for MCP resource browsing
 - v1.2: StreamableHttpService with LocalSessionManager for HTTP transport
 - v1.2: CallToolResult::error for sync-disabled message (tool remains callable)
+- [Phase 11]: MIT license with AgenticCRM Contributors as copyright holder
+- [Phase 11]: rust-version 1.85 minimum for edition 2024
+
+### Roadmap Evolution
+
+- Phase 11 added: Documentation & Release Readiness (README, CONTRIBUTING, LICENSE, MCP setup guide)
 
 ### Pending Todos
 
@@ -95,5 +102,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 09-02-PLAN.md (MCP write tools, resources, HTTP transport)
-Resume file: .planning/phases/09-mcp-server/09-02-SUMMARY.md
+Stopped at: Completed 11-01-PLAN.md (README, LICENSE, Cargo.toml metadata)
+Resume file: .planning/phases/11-docs-release-readiness/11-01-SUMMARY.md
