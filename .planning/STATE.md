@@ -84,6 +84,7 @@ Recent decisions affecting current work:
 - v1.2: CallToolResult::error for sync-disabled message (tool remains callable)
 - [Phase 11]: MIT license with AgenticCRM Contributors as copyright holder
 - [Phase 11]: rust-version 1.85 minimum for edition 2024
+- [Phase 11]: MCP tool names from source: due_followups (not due_follow_ups), sync_contacts (not sync)
 
 ### Roadmap Evolution
 
@@ -102,5 +103,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 11-01-PLAN.md (README, LICENSE, Cargo.toml metadata)
-Resume file: .planning/phases/11-docs-release-readiness/11-01-SUMMARY.md
+Stopped at: Completed 11-02-PLAN.md (MCP setup guide & CONTRIBUTING.md)
+Resume file: .planning/phases/11-docs-release-readiness/11-02-SUMMARY.md
