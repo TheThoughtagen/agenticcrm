@@ -28,7 +28,7 @@
 
 ### v1.2 MCP, Bulk Ops & LinkedIn
 
-- [ ] **Phase 7: Operations Layer** - Extract business logic from CLI into shared ops module
+- [x] **Phase 7: Operations Layer** - Extract business logic from CLI into shared ops module (completed 2026-03-09)
 - [ ] **Phase 8: Bulk Operations & Query Engine** - Query syntax, bulk edit/delete/archive/tag, dry-run, JSON pipe
 - [ ] **Phase 9: MCP Server** - `acrm serve` with stdio and Streamable HTTP transports, full CRM tools for AI agents
 - [ ] **Phase 10: LinkedIn Import** - Rust-native CSV import with dedup, change detection, and field mapping
@@ -110,7 +110,7 @@ Plans:
 | 4. Push Infrastructure | v1.1 | 3/3 | Complete | 2026-03-07 |
 | 5. Push Command | v1.1 | 2/2 | Complete | 2026-03-08 |
 | 6. Selective Sync & Bidirectional | v1.1 | 2/2 | Complete | 2026-03-08 |
-| 7. Operations Layer | v1.2 | 0/? | Not started | - |
+| 7. Operations Layer | 2/2 | Complete   | 2026-03-09 | - |
 | 8. Bulk Operations & Query Engine | v1.2 | 0/? | Not started | - |
 | 9. MCP Server | v1.2 | 0/? | Not started | - |
 | 10. LinkedIn Import | v1.2 | 0/? | Not started | - |

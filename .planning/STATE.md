@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-03-08)
 ## Current Position
 
 Phase: 7 of 10 (Operations Layer)
-Plan: 1 of 2 complete
-Status: Executing
-Last activity: 2026-03-09 -- Completed 07-01 (CRUD ops extraction)
+Plan: 2 of 2 complete
+Status: Phase Complete
+Last activity: 2026-03-09 -- Completed 07-02 (Sync ops extraction + TUI wiring)
 
-Progress: [######░░░░] 60% (6/10 phases complete across all milestones)
+Progress: [#######░░░] 70% (7/10 phases complete across all milestones)
 
 ## Performance Metrics
 
@@ -46,7 +46,7 @@ Progress: [######░░░░] 60% (6/10 phases complete across all milestones)
 | 4. Push Infrastructure | 3 | ~12m | ~4m |
 | 5. Push Command | 2 | ~8m | ~4m |
 | 6. Selective Sync | 2 | ~8m | ~4m |
-| 7. Operations Layer | 1/2 | 8m | 8m |
+| 7. Operations Layer | 2/2 | 14m | 7m |
 
 ## Accumulated Context
 
@@ -64,6 +64,9 @@ Recent decisions affecting current work:
 - v1.2: OpsError uses thiserror with NotFound, AmbiguousMatch, ValidationFailed, Io, Internal variants
 - v1.2: ops::contact owns fuzzy name matching; Display impls stay in CLI command files
 - v1.2: Two-phase delete pattern (find_delete_target + confirm_delete) for non-interactive consumers
+- v1.2: SyncCredentials struct passed by caller -- ops never loads from keyring or config
+- v1.2: SyncError added to OpsError for CardDAV error mapping
+- v1.2: Complete ops layer: all CLI and TUI operations delegate to ops functions
 
 ### Pending Todos
 
@@ -78,5 +81,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 07-01-PLAN.md
-Resume file: .planning/phases/07-operations-layer/07-01-SUMMARY.md
+Stopped at: Completed 07-02-PLAN.md (Phase 7 complete)
+Resume file: .planning/phases/07-operations-layer/07-02-SUMMARY.md
