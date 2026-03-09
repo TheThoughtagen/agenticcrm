@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: MCP, Bulk Ops & LinkedIn
 status: planning
-last_updated: "2026-03-08"
+last_updated: "2026-03-09"
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -18,21 +18,34 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Your contacts and relationship history are always accessible, portable, and under your control
-**Current focus:** Defining requirements for v1.2
+**Current focus:** Phase 7 - Operations Layer (v1.2)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-03-08 — Milestone v1.2 started
+Phase: 7 of 10 (Operations Layer)
+Plan: --
+Status: Ready to plan
+Last activity: 2026-03-09 -- Roadmap created for v1.2 (Phases 7-10)
+
+Progress: [######░░░░] 60% (6/10 phases complete across all milestones)
 
 ## Performance Metrics
 
-**Velocity (from v1.0):**
-- Total plans completed: 10
-- Average duration: 4 min/plan
-- Total execution time: 0.52 hours
+**Velocity (from v1.0 + v1.1):**
+- Total plans completed: 16
+- Average duration: ~4 min/plan
+- Total execution time: ~1.1 hours
+
+**By Phase:**
+
+| Phase | Plans | Total | Avg/Plan |
+|-------|-------|-------|----------|
+| 1. CLI Foundation | 3 | ~12m | ~4m |
+| 2. CardDAV Sync | 3 | ~12m | ~4m |
+| 3. Interactive TUI | 3 | ~12m | ~4m |
+| 4. Push Infrastructure | 3 | ~12m | ~4m |
+| 5. Push Command | 2 | ~8m | ~4m |
+| 6. Selective Sync | 2 | ~8m | ~4m |
 
 ## Accumulated Context
 
@@ -41,27 +54,12 @@ Last activity: 2026-03-08 — Milestone v1.2 started
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- v1.0: CRM wins on sync conflicts (carries forward with warn + override)
-- v1.0: reqwest blocking client for CardDAV (no async/tokio)
-- v1.0: Dedup by source_id not name
-- v1.0: calcard for vCard parsing
-- v1.1: Sync trigger = manual push + optional auto-push config
-- v1.1: Conflict resolution = warn + override (CRM still wins)
-- v1.1: Empty string returned when server omits ETag in PUT response (caller PROPFINDs)
-- v1.1: 200ms sleep before PUT/DELETE as iCloud rate-limit defense
-- v1.1: DELETE returns Ok on 404 for idempotent semantics
-- v1.1: Use VCardValue::Text (not Component) for N property to get semicolon separators
-- v1.1: Merge path (merge_contact_to_vcard) does in-place replacement preserving params and NOTE
-- v1.1: ContactSnapshot JSON caching for semantic push changeset detection (replaces string comparison)
-- v1.1: Changeset compute-then-execute pattern enables dry-run and preview
-- v1.1: CLI flags on both parent and subcommand level, merged via OR for flexible usage
-- v1.1: PROPFIND fallback when PUT returns empty ETag
-- v1.1: Force flag uses server ETag for If-Match on conflicts
-- v1.1: CLI filter flags replace (not union) config filter values when provided
-- v1.1: New contacts from server always pass pull filter (no tag filtering on new)
-- v1.1: Push filter applied before changeset; archived deletes unaffected
-- v1.1: Status matching via explicit match arms not serde serialization
-- v1.1: CLI tag/status flags cloned and applied to both pull and push phases in bidirectional sync
+- v1.0: reqwest blocking client for CardDAV (no async/tokio) -- MCP server will need spawn_blocking bridge
+- v1.0: Dedup by source_id not name -- LinkedIn import will need separate dedup strategy (name + email)
+- v1.2: Streamable HTTP transport, NOT deprecated HTTP+SSE (MCP spec 2025-03-26)
+- v1.2: rmcp 1.1 as MCP SDK (official, released 2026-03-04)
+- v1.2: tokio only for `acrm serve`; all other commands remain synchronous
+- v1.2: ops.rs extraction as prerequisite for MCP and bulk ops
 
 ### Pending Todos
 
@@ -69,11 +67,12 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Resolved]: vCard cache merge strategy validated -- parse-overlay-serialize with CRM_MAPPED_PROPERTIES works correctly
-- [Research]: iCloud rate limits undocumented -- plan for 200ms delays + exponential backoff
+- [Research]: rmcp 1.1 SDK is 5 days old -- API may shift. Pin to 1.1.x, validate during Phase 9 planning
+- [Research]: Concurrent file writes from MCP need per-file mutex. Prototype during Phase 9
+- [Carry]: reqwest::blocking panics inside tokio runtime -- must use spawn_blocking in MCP handlers
 
 ## Session Continuity
 
-Last session: 2026-03-08
-Stopped at: Completed 06-02-PLAN.md (bidirectional sync: pull-then-push)
+Last session: 2026-03-09
+Stopped at: Created v1.2 roadmap (Phases 7-10)
 Resume file: None

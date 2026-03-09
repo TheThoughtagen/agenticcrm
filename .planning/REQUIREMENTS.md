@@ -124,38 +124,38 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FILT-04 | Phase 6 | Complete |
 | BIDI-01 | Phase 6 | Complete |
 | BIDI-02 | Phase 6 | Complete |
-| OPS-01 | — | Pending |
-| OPS-02 | — | Pending |
-| MCP-01 | — | Pending |
-| MCP-02 | — | Pending |
-| MCP-03 | — | Pending |
-| MCP-04 | — | Pending |
-| MCP-05 | — | Pending |
-| MCP-06 | — | Pending |
-| MCP-07 | — | Pending |
-| MCP-08 | — | Pending |
-| MCP-09 | — | Pending |
-| MCP-10 | — | Pending |
-| MCP-11 | — | Pending |
-| MCP-12 | — | Pending |
-| BULK-01 | — | Pending |
-| BULK-02 | — | Pending |
-| BULK-03 | — | Pending |
-| BULK-04 | — | Pending |
-| BULK-05 | — | Pending |
-| BULK-06 | — | Pending |
-| BULK-07 | — | Pending |
-| LNKD-01 | — | Pending |
-| LNKD-02 | — | Pending |
-| LNKD-03 | — | Pending |
-| LNKD-04 | — | Pending |
+| OPS-01 | Phase 7 | Pending |
+| OPS-02 | Phase 7 | Pending |
+| MCP-01 | Phase 9 | Pending |
+| MCP-02 | Phase 9 | Pending |
+| MCP-03 | Phase 9 | Pending |
+| MCP-04 | Phase 9 | Pending |
+| MCP-05 | Phase 9 | Pending |
+| MCP-06 | Phase 9 | Pending |
+| MCP-07 | Phase 9 | Pending |
+| MCP-08 | Phase 9 | Pending |
+| MCP-09 | Phase 9 | Pending |
+| MCP-10 | Phase 9 | Pending |
+| MCP-11 | Phase 9 | Pending |
+| MCP-12 | Phase 9 | Pending |
+| BULK-01 | Phase 8 | Pending |
+| BULK-02 | Phase 8 | Pending |
+| BULK-03 | Phase 8 | Pending |
+| BULK-04 | Phase 8 | Pending |
+| BULK-05 | Phase 8 | Pending |
+| BULK-06 | Phase 8 | Pending |
+| BULK-07 | Phase 8 | Pending |
+| LNKD-01 | Phase 10 | Pending |
+| LNKD-02 | Phase 10 | Pending |
+| LNKD-03 | Phase 10 | Pending |
+| LNKD-04 | Phase 10 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 15 total (all complete)
 - v1.2 requirements: 25 total
-- Mapped to phases: 0
-- Unmapped: 25 ⚠️
+- Mapped to phases: 25/25
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-07*
-*Last updated: 2026-03-08 after v1.2 milestone requirements*
+*Last updated: 2026-03-09 after v1.2 roadmap creation*

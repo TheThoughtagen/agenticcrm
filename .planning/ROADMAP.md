@@ -4,6 +4,7 @@
 
 - ✅ **v1.0 MVP** — Phases 1-3 (shipped 2026-03-06)
 - ✅ **v1.1 Two-Way iCloud Sync** — Phases 4-6 (shipped 2026-03-08)
+- 🚧 **v1.2 MCP, Bulk Ops & LinkedIn** — Phases 7-10 (in progress)
 
 ## Phases
 
@@ -16,65 +17,90 @@
 
 </details>
 
-### v1.1 Two-Way iCloud Sync
+<details>
+<summary>✅ v1.1 Two-Way iCloud Sync (Phases 4-6) — SHIPPED 2026-03-08</summary>
 
 - [x] **Phase 4: Push Infrastructure** - vCard serialization, CardDAV PUT/DELETE, vCard cache, ETag conflict detection
 - [x] **Phase 5: Push Command** - `acrm sync push` with dry-run, force, and result reporting
 - [x] **Phase 6: Selective Sync & Bidirectional** - Tag/status filters for push and pull, `acrm sync` as pull-then-push
 
+</details>
+
+### v1.2 MCP, Bulk Ops & LinkedIn
+
+- [ ] **Phase 7: Operations Layer** - Extract business logic from CLI into shared ops module
+- [ ] **Phase 8: Bulk Operations & Query Engine** - Query syntax, bulk edit/delete/archive/tag, dry-run, JSON pipe
+- [ ] **Phase 9: MCP Server** - `acrm serve` with stdio and Streamable HTTP transports, full CRM tools for AI agents
+- [ ] **Phase 10: LinkedIn Import** - Rust-native CSV import with dedup, change detection, and field mapping
+
 ## Phase Details
 
-### Phase 4: Push Infrastructure
-**Goal**: CRM can serialize contacts to vCard 3.0 and write them to iCloud via CardDAV PUT/DELETE with lossless round-tripping
-**Depends on**: Phase 3 (v1.0 complete)
-**Requirements**: PUSH-01, PUSH-02, PUSH-03, PUSH-04, PUSH-05
+### Phase 7: Operations Layer
+**Goal**: All CRM business logic lives in a shared ops module that both CLI and future consumers call directly
+**Depends on**: Phase 6 (v1.1 complete)
+**Requirements**: OPS-01, OPS-02
 **Success Criteria** (what must be TRUE):
-  1. A new CRM contact with no iCloud history can be pushed to iCloud and appears as a contact in iCloud
-  2. An updated CRM contact can be pushed to iCloud and the changes appear in iCloud
-  3. A deleted/archived CRM contact triggers removal of the corresponding iCloud contact
-  4. Pushing a contact back to iCloud preserves iCloud-only data (photos, TYPE params, X-properties) via vCard cache
-  5. When iCloud has a newer version (different ETag), the user sees a conflict warning before push proceeds
-**Plans**: 3 plans
+  1. Every CLI command (add, list, search, show, edit, log, due, delete, archive) delegates to a function in the ops module
+  2. All existing CLI commands produce identical output and behavior before and after the refactor
+  3. The ops module functions accept plain arguments and return `Result<T>` -- no CLI or clap types leak into ops
+**Plans**: TBD
 
 Plans:
-- [x] 04-01-PLAN.md — vCard serialization and cache module
-- [x] 04-02-PLAN.md — CardDAV PUT/DELETE methods
-- [x] 04-03-PLAN.md — Push orchestration and pull cache integration
+- [ ] 07-01: TBD
+- [ ] 07-02: TBD
 
-### Phase 5: Push Command
-**Goal**: User has a complete CLI interface for pushing CRM changes to iCloud with previewing, overriding, and reporting
-**Depends on**: Phase 4
-**Requirements**: CMD-01, CMD-02, CMD-03, CMD-04
+### Phase 8: Bulk Operations & Query Engine
+**Goal**: Users can query contacts with field predicates and apply bulk changes in a single command, with safety guards and Unix composability
+**Depends on**: Phase 7
+**Requirements**: BULK-01, BULK-02, BULK-03, BULK-04, BULK-05, BULK-06, BULK-07
 **Success Criteria** (what must be TRUE):
-  1. User can run `acrm sync push` and all local changes are pushed to iCloud
-  2. User can run `acrm sync push --dry-run` and see what would be pushed without any server changes
-  3. User can run `acrm sync push --force` to skip conflict checks and push regardless
-  4. After push completes, user sees a summary reporting counts of created, updated, deleted, and conflicted contacts
-**Plans**: 2 plans
+  1. User can run `acrm bulk 'status=dormant'` and see all contacts matching the query
+  2. User can bulk update, delete, archive, or tag matched contacts in one command (`--set`, `--delete`, `--archive`, `--add-tag`, `--remove-tag`)
+  3. Bulk operations show a preview and require confirmation before making changes (skippable with `--yes`)
+  4. User can run any bulk command with `--dry-run` to see what would change without writing to disk
+  5. User can pipe JSON output from `acrm search` into `acrm bulk-update --stdin` for Unix-style composition
+**Plans**: TBD
 
 Plans:
-- [x] 05-01-PLAN.md — Implement execute_push and add sync push/pull CLI subcommands
-- [x] 05-02-PLAN.md — Fix false-positive changeset detection and vCard merge data loss (gap closure)
+- [ ] 08-01: TBD
+- [ ] 08-02: TBD
+- [ ] 08-03: TBD
 
-### Phase 6: Selective Sync & Bidirectional
-**Goal**: User can control which contacts sync in each direction and run a single command for full bidirectional sync
-**Depends on**: Phase 5
-**Requirements**: FILT-01, FILT-02, FILT-03, FILT-04, BIDI-01, BIDI-02
+### Phase 9: MCP Server
+**Goal**: AI agents can discover and use all CRM operations as MCP tools via `acrm serve`, with safe concurrent access
+**Depends on**: Phase 8
+**Requirements**: MCP-01, MCP-02, MCP-03, MCP-04, MCP-05, MCP-06, MCP-07, MCP-08, MCP-09, MCP-10, MCP-11, MCP-12
 **Success Criteria** (what must be TRUE):
-  1. User can configure tag and status filters in sync config so only matching contacts are pushed
-  2. User can configure tag and status filters in sync config so only matching contacts are pulled
-  3. User can override configured filters via `--tag` and `--status` CLI flags on sync commands
-  4. With no filters configured, all contacts sync in both directions (default behavior preserved)
-  5. User can run `acrm sync` to perform pull-then-push in a single command, and can still run `acrm sync pull` or `acrm sync push` individually
-**Plans**: 2 plans
+  1. Agent can connect to `acrm serve` over stdio and discover all CRM tools (search, show, add, edit, log, delete, archive, due, sync)
+  2. Agent can connect to `acrm serve --http` over Streamable HTTP for remote access
+  3. Agent can perform full read+write CRM operations (search, view, add, edit, log interaction, delete/archive, list due follow-ups, trigger sync) through MCP tools
+  4. Contacts are browsable as MCP resources via `contact://` URIs
+  5. Concurrent MCP requests from the same or multiple agents do not corrupt contact files
+**Plans**: TBD
 
 Plans:
-- [x] 06-01-PLAN.md — SyncFilter module, toml config parsing, CLI flags, filter wiring in push/pull
-- [x] 06-02-PLAN.md — Bidirectional sync: route bare `acrm sync` to pull-then-push
+- [ ] 09-01: TBD
+- [ ] 09-02: TBD
+- [ ] 09-03: TBD
+
+### Phase 10: LinkedIn Import
+**Goal**: Users can import LinkedIn connection data into the CRM with intelligent deduplication and change detection
+**Depends on**: Phase 7 (uses ops layer; independent of Phases 8-9)
+**Requirements**: LNKD-01, LNKD-02, LNKD-03, LNKD-04
+**Success Criteria** (what must be TRUE):
+  1. User can run `acrm import linkedin <file>` and contacts from the CSV are created in the CRM
+  2. Re-importing the same CSV does not create duplicates (matched by name and email)
+  3. Re-importing an updated CSV detects and applies only changed fields, leaving manually-edited CRM fields intact
+  4. All available LinkedIn CSV columns (first name, last name, email, company, position, connected on) are mapped to the contact schema
+**Plans**: TBD
+
+Plans:
+- [ ] 10-01: TBD
+- [ ] 10-02: TBD
 
 ## Progress
 
-**Execution Order:** Phases 4 -> 5 -> 6
+**Execution Order:** Phases 7 -> 8 -> 9 -> 10
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -84,3 +110,7 @@ Plans:
 | 4. Push Infrastructure | v1.1 | 3/3 | Complete | 2026-03-07 |
 | 5. Push Command | v1.1 | 2/2 | Complete | 2026-03-08 |
 | 6. Selective Sync & Bidirectional | v1.1 | 2/2 | Complete | 2026-03-08 |
+| 7. Operations Layer | v1.2 | 0/? | Not started | - |
+| 8. Bulk Operations & Query Engine | v1.2 | 0/? | Not started | - |
+| 9. MCP Server | v1.2 | 0/? | Not started | - |
+| 10. LinkedIn Import | v1.2 | 0/? | Not started | - |
