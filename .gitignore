@@ -1,3 +1,7 @@
+# Contacts (personal data)
+contacts/
+!contacts/example-jane-smith.md
+
 # Import staging
 imports/*.csv
 imports/*.vcf
@@ -17,3 +21,10 @@ Thumbs.db
 
 # Sync cache
 .sync/
+
+# Claude Code
+.claude/
+.mcp.json
+
+# Planning debug artifacts
+.planning/debug/
