@@ -59,12 +59,11 @@ Plans:
   3. Bulk operations show a preview and require confirmation before making changes (skippable with `--yes`)
   4. User can run any bulk command with `--dry-run` to see what would change without writing to disk
   5. User can pipe JSON output from `acrm search` into `acrm bulk-update --stdin` for Unix-style composition
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 08-01: TBD
-- [ ] 08-02: TBD
-- [ ] 08-03: TBD
+- [ ] 08-01-PLAN.md — Query engine (predicate parser + matcher) and bulk ops functions in ops layer
+- [ ] 08-02-PLAN.md — CLI bulk/bulk-update commands with preview/confirm, dry-run, and stdin JSON pipe
 
 ### Phase 9: MCP Server
 **Goal**: AI agents can discover and use all CRM operations as MCP tools via `acrm serve`, with safe concurrent access
@@ -111,6 +110,6 @@ Plans:
 | 5. Push Command | v1.1 | 2/2 | Complete | 2026-03-08 |
 | 6. Selective Sync & Bidirectional | v1.1 | 2/2 | Complete | 2026-03-08 |
 | 7. Operations Layer | 2/2 | Complete   | 2026-03-09 | - |
-| 8. Bulk Operations & Query Engine | v1.2 | 0/? | Not started | - |
+| 8. Bulk Operations & Query Engine | v1.2 | 0/2 | Planning complete | - |
 | 9. MCP Server | v1.2 | 0/? | Not started | - |
 | 10. LinkedIn Import | v1.2 | 0/? | Not started | - |
