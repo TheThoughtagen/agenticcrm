@@ -63,10 +63,10 @@ Requirements for v1.2 milestone (MCP, Bulk Ops & LinkedIn). Each maps to roadmap
 
 ### Bulk Operations
 
-- [ ] **BULK-01**: User can query contacts with field-based predicates (`acrm bulk 'status=dormant'`)
-- [ ] **BULK-02**: User can bulk update fields on matched contacts (`--set field=value`)
-- [ ] **BULK-03**: User can bulk delete or archive matched contacts
-- [ ] **BULK-04**: User can bulk add/remove tags on matched contacts
+- [x] **BULK-01**: User can query contacts with field-based predicates (`acrm bulk 'status=dormant'`)
+- [x] **BULK-02**: User can bulk update fields on matched contacts (`--set field=value`)
+- [x] **BULK-03**: User can bulk delete or archive matched contacts
+- [x] **BULK-04**: User can bulk add/remove tags on matched contacts
 - [ ] **BULK-05**: Bulk operations show preview and require confirmation (or `--yes` to skip)
 - [ ] **BULK-06**: All bulk commands support `--dry-run` to preview without changes
 - [ ] **BULK-07**: JSON pipe input supported (`acrm search --json | acrm bulk-update --stdin`)
@@ -138,10 +138,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MCP-10 | Phase 9 | Pending |
 | MCP-11 | Phase 9 | Pending |
 | MCP-12 | Phase 9 | Pending |
-| BULK-01 | Phase 8 | Pending |
-| BULK-02 | Phase 8 | Pending |
-| BULK-03 | Phase 8 | Pending |
-| BULK-04 | Phase 8 | Pending |
+| BULK-01 | Phase 8 | Complete |
+| BULK-02 | Phase 8 | Complete |
+| BULK-03 | Phase 8 | Complete |
+| BULK-04 | Phase 8 | Complete |
 | BULK-05 | Phase 8 | Pending |
 | BULK-06 | Phase 8 | Pending |
 | BULK-07 | Phase 8 | Pending |

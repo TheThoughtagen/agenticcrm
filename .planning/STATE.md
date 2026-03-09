@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: MCP, Bulk Ops & LinkedIn
-status: unknown
-last_updated: "2026-03-09T13:22:22.030Z"
+status: in-progress
+last_updated: "2026-03-09T14:19:37Z"
 progress:
   total_phases: 4
   completed_phases: 4
-  total_plans: 9
-  completed_plans: 9
+  total_plans: 10
+  completed_plans: 10
 ---
 
 # Project State
@@ -18,14 +18,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-08)
 
 **Core value:** Your contacts and relationship history are always accessible, portable, and under your control
-**Current focus:** Phase 7 - Operations Layer (v1.2)
+**Current focus:** Phase 8 - Bulk Operations & Query Engine (v1.2)
 
 ## Current Position
 
-Phase: 7 of 10 (Operations Layer)
-Plan: 2 of 2 complete
-Status: Phase Complete
-Last activity: 2026-03-09 -- Completed 07-02 (Sync ops extraction + TUI wiring)
+Phase: 8 of 10 (Bulk Operations & Query Engine)
+Plan: 1 of 2 complete
+Status: In Progress
+Last activity: 2026-03-09 -- Completed 08-01 (Query engine + bulk ops functions)
 
 Progress: [#######░░░] 70% (7/10 phases complete across all milestones)
 
@@ -47,6 +47,7 @@ Progress: [#######░░░] 70% (7/10 phases complete across all milestones)
 | 5. Push Command | 2 | ~8m | ~4m |
 | 6. Selective Sync | 2 | ~8m | ~4m |
 | 7. Operations Layer | 2/2 | 14m | 7m |
+| 8. Bulk Ops & Query Engine | 1/2 | 4m | 4m |
 
 ## Accumulated Context
 
@@ -67,6 +68,9 @@ Recent decisions affecting current work:
 - v1.2: SyncCredentials struct passed by caller -- ops never loads from keyring or config
 - v1.2: SyncError added to OpsError for CardDAV error mapping
 - v1.2: Complete ops layer: all CLI and TUI operations delegate to ops functions
+- v1.2: Enum field values in query engine serialized via serde_json for correct kebab-case/snake_case
+- v1.2: Array field Eq semantics: "any element equals value" (contains-based matching)
+- v1.2: Bulk ops use dry_run bool pattern, returning BulkResult regardless
 
 ### Pending Todos
 
@@ -81,5 +85,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 07-02-PLAN.md (Phase 7 complete)
-Resume file: .planning/phases/07-operations-layer/07-02-SUMMARY.md
+Stopped at: Completed 08-01-PLAN.md (Query engine + bulk ops)
+Resume file: .planning/phases/08-bulk-operations-query-engine/08-01-SUMMARY.md
