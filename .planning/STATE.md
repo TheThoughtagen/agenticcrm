@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: MCP, Bulk Ops & LinkedIn
 status: unknown
-last_updated: "2026-03-09T18:17:41.842Z"
+last_updated: "2026-03-09T19:57:46.280Z"
 progress:
   total_phases: 8
   completed_phases: 8
-  total_plans: 17
-  completed_plans: 17
+  total_plans: 18
+  completed_plans: 18
 ---
 
 # Project State
@@ -23,9 +23,9 @@ See: .planning/PROJECT.md (updated 2026-03-08)
 ## Current Position
 
 Phase: 10 of 11 (LinkedIn Import)
-Plan: 2 of 2 complete
+Plan: 3 of 3 complete
 Status: Phase Complete
-Last activity: 2026-03-09 -- Completed 10-02 (LinkedIn import CLI wiring)
+Last activity: 2026-03-09 -- Completed 10-03 (Gap closure: dry-run and skipped counting fixes)
 
 Progress: [##########] 100% (phase 10 complete)
 
@@ -49,7 +49,7 @@ Progress: [##########] 100% (phase 10 complete)
 | 7. Operations Layer | 2/2 | 14m | 7m |
 | 8. Bulk Ops & Query Engine | 2/2 | 9m | ~5m |
 | 9. MCP Server | 2/2 | 13m | ~7m |
-| 10. LinkedIn Import | 2/2 | 6m | 3m |
+| 10. LinkedIn Import | 3/3 | 8m | ~3m |
 | 11. Docs & Release | 2/3 | 4m | 2m |
 
 ## Accumulated Context
@@ -91,6 +91,8 @@ Recent decisions affecting current work:
 - [Phase 10]: Source field: only fill if truly empty, not if default 'manual'
 - [Phase 10]: Display impl for ImportResult in commands/import.rs (follows existing pattern)
 - [Phase 10]: ImportSource enum with Linkedin variant for extensible import sources
+- [Phase 10]: Dry-run predicts file path via string formatting instead of calling contact::add
+- [Phase 10]: No-change matches pushed to skipped vec with reason "no changes needed"
 
 ### Roadmap Evolution
 
@@ -109,5 +111,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-09
-Stopped at: Completed 10-02-PLAN.md (LinkedIn import CLI wiring)
-Resume file: .planning/phases/10-linkedin-import/10-02-SUMMARY.md
+Stopped at: Completed 10-03-PLAN.md (Gap closure: dry-run and skipped counting fixes)
+Resume file: .planning/phases/10-linkedin-import/10-03-SUMMARY.md
