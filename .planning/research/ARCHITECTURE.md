@@ -1,517 +1,454 @@
-# Architecture Patterns
+# Architecture Research
 
-**Domain:** Two-way iCloud CardDAV sync -- push, conflict detection, selective filtering
-**Researched:** 2026-03-07
-**Confidence:** HIGH (RFC 6352 verified, existing codebase analyzed, calcard API confirmed)
+**Domain:** MCP server, bulk operations, and LinkedIn automation for existing Rust CLI CRM
+**Researched:** 2026-03-08
+**Confidence:** HIGH (existing codebase well-understood, MCP SDK is official and documented)
 
-## Current Architecture (v1.0)
+## System Overview
 
 ```
-CLI (main.rs)
-  |
-  v
-commands/sync.rs        -- orchestrates pull sync flow
-  |
-  +-- sync/config.rs    -- credentials (keychain + TOML)
-  +-- sync/carddav.rs   -- CardDavClient: PROPFIND, GET only
-  +-- sync/vcard_map.rs -- vCard->Contact (one direction only)
-  +-- sync/dedup.rs     -- find_existing_by_source_id, should_update
-  +-- store.rs          -- file I/O, ContactFile parse/serialize/write
-  +-- frontmatter.rs    -- raw YAML manipulation preserving comments
+                        Entry Points
+  ┌──────────┐    ┌──────────────┐    ┌───────────────┐
+  │  CLI      │    │  MCP Server  │    │  LinkedIn     │
+  │  (clap)   │    │  (rmcp)      │    │  Automation   │
+  └─────┬─────┘    └──────┬───────┘    └───────┬───────┘
+        │                 │                    │
+        │    ┌────────────┴────────┐           │
+        │    │  MCP Tool Handlers  │           │
+        │    │  (mcp/tools.rs)     │           │
+        │    └────────────┬────────┘           │
+        │                 │                    │
+  ┌─────┴─────────────────┴────────────────────┴──────┐
+  │                  Operations Layer                   │
+  │  ┌──────────┐  ┌──────────┐  ┌──────────────────┐  │
+  │  │ commands/ │  │  query/  │  │  linkedin/       │  │
+  │  │ (existing)│  │  (NEW)   │  │  (NEW)           │  │
+  │  └─────┬────┘  └────┬─────┘  └────────┬─────────┘  │
+  │        │            │                  │            │
+  ├────────┴────────────┴──────────────────┴────────────┤
+  │                   Core Layer                        │
+  │  ┌──────────┐  ┌─────────────┐  ┌──────────────┐   │
+  │  │ store.rs │  │frontmatter.rs│  │validation.rs │   │
+  │  │          │  │             │  │              │   │
+  │  └──────────┘  └─────────────┘  └──────────────┘   │
+  ├─────────────────────────────────────────────────────┤
+  │                   Data Layer                        │
+  │  ┌────────────────────────────────────────────┐     │
+  │  │           contacts/*.md (flat files)        │     │
+  │  └────────────────────────────────────────────┘     │
+  └─────────────────────────────────────────────────────┘
 ```
 
-**Data flow (pull only):**
+### Component Responsibilities
+
+| Component | Responsibility | Status |
+|-----------|---------------|--------|
+| `store.rs` | File I/O, `ContactFile` parsing/writing, CRM root resolution | EXISTS -- no changes needed |
+| `frontmatter.rs` | Raw YAML preservation, field updates, array updates | EXISTS -- no changes needed |
+| `validation.rs` | Contact field validation | EXISTS -- no changes needed |
+| `commands/` | Individual CLI command handlers (add, edit, search, etc.) | EXISTS -- refactor to delegate to ops.rs |
+| `models/contact.rs` | `Contact` struct, `ContactFile`, enums | EXISTS -- no changes needed |
+| `format.rs` | Human/JSON output formatting | EXISTS -- no changes needed |
+| `ops.rs` | Pure business logic extracted from commands/ | **NEW** -- prerequisite for MCP |
+| `mcp/` | MCP server setup, tool definitions, transport | **NEW** |
+| `query/` | Query parser + filter engine for bulk operations | **NEW** |
+| `linkedin/` | CSV import logic (Rust port) + Playwright automation | **NEW** |
+
+## Recommended Project Structure
+
 ```
-iCloud --PROPFIND--> vcard list --GET--> vcard text --vcard_map--> Contact --store--> .md file
+src/
+├── commands/           # Existing CLI command handlers (thin wrappers)
+│   ├── mod.rs          # Add pub mod bulk; pub mod import;
+│   ├── add.rs          # Delegates to ops::add_contact()
+│   ├── edit.rs         # Delegates to ops::edit_contact()
+│   ├── search.rs       # Delegates to ops::search_contacts()
+│   ├── show.rs         # Delegates to ops::show_contact()
+│   ├── log.rs          # Delegates to ops::log_interaction()
+│   ├── due.rs          # Delegates to ops::due_contacts()
+│   ├── list.rs         # Delegates to ops::list_contacts()
+│   ├── delete.rs       # Delegates to ops::delete_contact()
+│   ├── archive.rs      # Delegates to ops::archive_contact()
+│   ├── sync.rs         # Existing CardDAV sync (unchanged)
+│   ├── bulk.rs         # NEW -- acrm bulk subcommand
+│   └── import.rs       # NEW -- acrm import linkedin subcommand
+├── models/             # Existing data models (unchanged)
+│   ├── mod.rs
+│   └── contact.rs
+├── sync/               # Existing CardDAV sync (unchanged)
+├── tui/                # Existing TUI (unchanged)
+├── mcp/                # NEW -- MCP server module
+│   ├── mod.rs          # Server init, transport setup
+│   ├── server.rs       # ServerHandler impl with #[tool(tool_box)]
+│   └── tools.rs        # Individual #[tool] definitions
+├── query/              # NEW -- Query engine for bulk ops
+│   ├── mod.rs
+│   ├── parser.rs       # Query syntax parser (key=value AND ...)
+│   └── filter.rs       # Filter execution on Vec<ContactFile>
+├── linkedin/           # NEW -- LinkedIn automation
+│   ├── mod.rs
+│   ├── csv_import.rs   # Rust port of import-linkedin.sh with dedup
+│   └── automation.rs   # Shell-out to Playwright script for CSV export
+├── ops.rs              # NEW -- Pure business logic (core of the refactor)
+├── format.rs           # Existing (unchanged)
+├── frontmatter.rs      # Existing (unchanged)
+├── store.rs            # Existing (unchanged)
+├── validation.rs       # Existing (unchanged)
+└── main.rs             # Add Serve, Bulk, Import subcommands
+scripts/
+└── linkedin-export.js  # NEW -- Playwright script for LinkedIn CSV export
 ```
 
-## Recommended Architecture (v1.1)
+### Structure Rationale
 
-### New and Modified Components
+- **`ops.rs` (NEW critical path):** Currently business logic lives inside command handlers that own `println!` and format output. The MCP server needs the same logic without stdout. Extract pure operations (search, filter, edit, add, log) returning `Result<T>` -- both commands and MCP tools call into this shared layer. This is the single most important architectural change.
+- **`mcp/`:** Isolated module because the MCP server has its own lifecycle (long-running async process) vs the rest of the codebase (synchronous, run-and-exit). Contains the rmcp `ServerHandler` impl and tool definitions.
+- **`query/`:** Separated from commands because the query engine serves both `acrm bulk` CLI and MCP tool filtering. The parser converts `"status=dormant AND tag=linkedin-import"` into filter predicates; the filter applies them to `Vec<ContactFile>`.
+- **`linkedin/`:** Isolated because Playwright automation is experimental and has heavy external dependencies. CSV import is clean Rust; automation shells out to a JS script.
 
-| Component | Status | Purpose |
-|-----------|--------|---------|
-| `sync/carddav.rs` | **MODIFY** | Add `put_vcard()` and `delete_vcard()` methods to `CardDavClient` |
-| `sync/vcard_map.rs` | **MODIFY** | Add `map_contact_to_vcard()` (reverse direction) |
-| `sync/push.rs` | **NEW** | Push sync orchestration: diff detection, push loop, result reporting |
-| `sync/filter.rs` | **NEW** | Selective sync filter logic (tag/status predicates) |
-| `commands/sync.rs` | **MODIFY** | Add `run_push()`, wire up `acrm sync push` subcommand, apply filters to pull |
-| `main.rs` | **MODIFY** | Add `Push` variant to `SyncAction` enum |
-| `sync/config.rs` | **MODIFY** | Add `auto_push` and filter config parsing from `sync.toml` |
-| `sync/mod.rs` | **MODIFY** | Export new `push` and `filter` modules |
+## Architectural Patterns
 
-### Component Boundaries
+### Pattern 1: Operations Layer Extraction
 
-| Component | Responsibility | Communicates With |
-|-----------|---------------|-------------------|
-| `CardDavClient` | HTTP transport only (PROPFIND, GET, PUT, DELETE) | iCloud server |
-| `vcard_map` | Bidirectional mapping: `Contact <-> VCard` | `calcard` crate |
-| `push` | Push orchestration: load locals, compare ETags, decide actions, call client | `carddav`, `vcard_map`, `store`, `dedup`, `filter` |
-| `filter` | Predicate functions for tag/status filtering | `models::Contact` |
-| `dedup` | Source ID matching, ETag comparison (unchanged) | `models::ContactFile` |
-| `store` | File I/O (unchanged) | filesystem |
-| `config` | Credentials + sync settings | filesystem, keychain |
+**What:** Extract business logic from CLI command handlers into pure functions in `ops.rs` that return structured results, then have both CLI commands and MCP tools call these functions.
+**When to use:** Now -- prerequisite for MCP integration.
+**Trade-offs:** Small refactoring effort up front, but eliminates code duplication between CLI and MCP. Every existing command handler becomes a thin wrapper.
+
+**Example:**
+```rust
+// ops.rs -- pure business logic, no I/O formatting
+pub fn search_contacts(root: &Path, query: &str) -> Result<Vec<ContactFile>> {
+    let contacts = store::load_all_contacts(root)?;
+    let query_lower = query.to_lowercase();
+    Ok(contacts.into_iter().filter(|cf| {
+        let c = &cf.contact;
+        c.name.to_lowercase().contains(&query_lower)
+            || c.company.to_lowercase().contains(&query_lower)
+            || c.tags.iter().any(|t| t.to_lowercase().contains(&query_lower))
+            || cf.body.to_lowercase().contains(&query_lower)
+    }).collect())
+}
+
+pub fn add_contact(root: &Path, name: &str) -> Result<ContactFile> { ... }
+pub fn edit_contact(root: &Path, name: &str, sets: &[String]) -> Result<EditResult> { ... }
+pub fn log_interaction(root: &Path, name: &str, itype: &str, summary: &str, notes: Option<&str>) -> Result<LogResult> { ... }
+pub fn due_contacts(root: &Path) -> Result<Vec<DueContact>> { ... }
+pub fn show_contact(root: &Path, name: &str) -> Result<ContactFile> { ... }
+
+// commands/search.rs -- becomes a thin wrapper
+pub fn run(query: &str, fmt: &OutputFormat) -> Result<()> {
+    let root = store::find_crm_root()?;
+    let results = ops::search_contacts(&root, query)?;
+    let search_results: Vec<SearchResult> = results.iter().map(|cf| SearchResult { ... }).collect();
+    format::output_list(&search_results, fmt, "match(es)")
+}
+```
+
+### Pattern 2: Async Boundary at MCP Layer Only
+
+**What:** Keep the entire core codebase synchronous. The MCP server uses `tokio::task::spawn_blocking` to call into sync operations from the async MCP handler.
+**When to use:** This project. The codebase is 4,700+ LOC of synchronous Rust. Converting to async would be a rewrite with no benefit for file I/O.
+**Trade-offs:** Slight overhead from `spawn_blocking` (thread pool), but the alternative (async rewrite) is catastrophic.
+
+**Example:**
+```rust
+// mcp/server.rs
+#[tool(description = "Search contacts by name, company, tag, or notes")]
+async fn search(
+    &self,
+    #[tool(param, description = "Search query string")] query: String,
+) -> Result<CallToolResult, McpError> {
+    let result = tokio::task::spawn_blocking(move || {
+        let root = store::find_crm_root()?;
+        ops::search_contacts(&root, &query)
+    }).await
+    .map_err(|e| McpError::internal_error(e.to_string(), None))?
+    .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+    let json = serde_json::to_string_pretty(
+        &result.iter().map(|cf| &cf.contact).collect::<Vec<_>>()
+    ).unwrap();
+    Ok(CallToolResult::success(vec![Content::text(json)]))
+}
+```
+
+### Pattern 3: Simple Query DSL as Filter Predicates
+
+**What:** Parse a simple query string into filter predicates applied to `Vec<ContactFile>` in memory. No database, no query planner.
+**When to use:** Bulk operations and MCP filtered queries.
+**Trade-offs:** Limited to what fits in memory (fine for <10K contacts). Simple to implement and debug.
+
+**Supported syntax:**
+```
+status=dormant                              # exact match
+status=dormant AND tag=linkedin-import      # conjunction
+name~smith                                  # contains
+last_contacted<2025-01-01                   # date comparison
+next_follow_up>2026-03-01                   # date comparison
+company="Acme Corp"                         # quoted value with spaces
+```
+
+**Example:**
+```rust
+// query/parser.rs
+pub enum Op { Eq, Contains, Lt, Gt }
+
+pub struct Predicate {
+    pub field: String,
+    pub op: Op,
+    pub value: String,
+}
+
+pub fn parse_query(input: &str) -> Result<Vec<Predicate>> {
+    input.split(" AND ")
+        .map(|part| parse_predicate(part.trim()))
+        .collect()
+}
+
+// query/filter.rs
+pub fn apply_predicates(contacts: Vec<ContactFile>, preds: &[Predicate]) -> Vec<ContactFile> {
+    contacts.into_iter()
+        .filter(|cf| preds.iter().all(|p| matches_predicate(cf, p)))
+        .collect()
+}
+```
 
 ## Data Flow
 
-### Push Flow (new)
+### MCP Tool Call Flow
 
 ```
-store::load_all_contacts()
-  |
-  v
-filter::matches_push_filter(contact, config)  -- selective sync
-  |
-  v
-For each pushable contact:
-  |
-  +-- No source_id? --> NEW: generate UID, map_contact_to_vcard(), PUT (If-None-Match: *)
-  |                      --> Store returned ETag + source_id in frontmatter
-  |
-  +-- Has source_id + etag? --> PROPFIND to get server ETag
-  |     |
-  |     +-- Server ETag == local ETag? --> Local changed, server unchanged
-  |     |     --> map_contact_to_vcard(), PUT with If-Match: local_etag
-  |     |     --> Update stored ETag from response
-  |     |
-  |     +-- Server ETag != local ETag? --> CONFLICT
-  |           --> Warn user, CRM wins (per project constraint)
-  |           --> PUT with If-Match: * (force overwrite)
-  |           --> Update stored ETag from response
-  |
-  +-- Status == Archived AND source == "icloud"? --> DELETE with If-Match
-        --> Clear source_id and etag from frontmatter
-```
-
-### Pull Flow (modified)
-
-```
-Existing pull flow, with one addition:
-  |
-  v
-filter::matches_pull_filter(mapped_contact, config)  -- selective sync
-  |
-  +-- Passes filter? --> proceed as before (create/update/skip)
-  +-- Fails filter? --> skip this contact
-```
-
-### Conflict Detection Detail
-
-The conflict detection model uses ETags per RFC 6352:
-
-1. **No conflict (common case):** Local ETag matches server ETag. Local has been modified since last sync. PUT with `If-Match: "local_etag"` succeeds with 200/204. Store new ETag from response.
-
-2. **Conflict detected:** Local ETag does not match server ETag (both sides changed). Per project constraint "CRM wins on all sync conflicts": warn the user, then PUT with `If-Match: *` to force overwrite. Store new ETag.
-
-3. **Stale local (no local changes):** Detected by comparing ETag values. If the local ETag matches the server ETag, the contact is unchanged on both sides -- skip it. If the server ETag differs but the local contact has not been modified since last pull, next pull will update it. For MVP, always push if ETag differs and let CRM-wins rule apply.
-
-4. **Server returns 412 Precondition Failed:** ETag changed between PROPFIND check and PUT. Retry once with fresh ETag check, then force-overwrite if still conflicting.
-
-## Patterns to Follow
-
-### Pattern 1: CardDAV PUT with ETag (RFC 6352 Section 6.3.2)
-
-**What:** Create or update a contact on the server using HTTP PUT with conditional headers.
-**When:** Pushing a contact to iCloud.
-
-```rust
-// In CardDavClient -- new method
-pub fn put_vcard(
-    &self,
-    vcard_url: &Url,
-    vcard_body: &str,
-    etag: Option<&str>,  // None = new contact, Some = update
-) -> Result<PutResult> {
-    let method = Method::PUT;
-    let mut request = self.client
-        .request(method, vcard_url.as_str())
-        .header("Content-Type", "text/vcard; charset=utf-8")
-        .basic_auth(&self.apple_id, Some(&self.app_password))
-        .body(vcard_body.to_string());
-
-    match etag {
-        Some(etag) => {
-            // Update existing -- server rejects if ETag changed
-            request = request.header("If-Match", format!("\"{}\"", etag));
-        }
-        None => {
-            // Create new -- server rejects if resource already exists
-            request = request.header("If-None-Match", "*");
-        }
-    }
-
-    let response = request.send()?;
-    match response.status().as_u16() {
-        200 | 201 | 204 => {
-            let new_etag = response.headers()
-                .get("ETag")
-                .and_then(|v| v.to_str().ok())
-                .map(|s| s.trim_matches('"').to_string());
-            Ok(PutResult { new_etag, conflict: false })
-        }
-        412 => Ok(PutResult { new_etag: None, conflict: true }),
-        status => bail!("PUT failed with status {}", status),
-    }
-}
-```
-
-**Key iCloud behavior:** iCloud may not return an ETag in the PUT response. If absent, immediately do a HEAD or PROPFIND on the single resource URL to retrieve the new ETag.
-
-### Pattern 2: Contact-to-VCard Serialization via calcard
-
-**What:** Build a vCard 3.0 string from a `Contact` struct using calcard's builder API.
-**When:** Before every PUT to iCloud.
-
-calcard's `VCard` struct has a public `entries: Vec<VCardEntry>` field. `VCardEntry::new(prop).with_value(val)` provides a fluent builder. Serialization is via `vcard.to_string()` (Display impl).
-
-```rust
-// In vcard_map.rs -- new function
-pub fn map_contact_to_vcard(contact: &Contact, uid: &str, notes: &str) -> String {
-    let mut vcard = VCard::default();
-
-    // FN (formatted name)
-    vcard.entries.push(
-        VCardEntry::new(VCardProperty::Fn)
-            .with_value(VCardValue::Text(contact.name.clone()))
-    );
-
-    // N (structured name: Family;Given;;;)
-    let (given, family) = split_name(&contact.name);
-    vcard.entries.push(
-        VCardEntry::new(VCardProperty::N)
-            .with_values(vec![
-                VCardValue::Text(family),
-                VCardValue::Text(given),
-                VCardValue::Text(String::new()),
-                VCardValue::Text(String::new()),
-                VCardValue::Text(String::new()),
-            ])
-    );
-
-    // UID
-    vcard.entries.push(
-        VCardEntry::new(VCardProperty::Uid)
-            .with_value(VCardValue::Text(uid.to_string()))
-    );
-
-    // EMAIL (one entry per address)
-    for email in &contact.email {
-        vcard.entries.push(
-            VCardEntry::new(VCardProperty::Email)
-                .with_value(VCardValue::Text(email.clone()))
-        );
-    }
-
-    // TEL (one entry per number)
-    for phone in &contact.phone {
-        vcard.entries.push(
-            VCardEntry::new(VCardProperty::Tel)
-                .with_value(VCardValue::Text(phone.clone()))
-        );
-    }
-
-    // ORG
-    if !contact.company.is_empty() {
-        vcard.entries.push(
-            VCardEntry::new(VCardProperty::Org)
-                .with_value(VCardValue::Text(contact.company.clone()))
-        );
-    }
-
-    // TITLE
-    if !contact.role.is_empty() {
-        vcard.entries.push(
-            VCardEntry::new(VCardProperty::Title)
-                .with_value(VCardValue::Text(contact.role.clone()))
-        );
-    }
-
-    // URL
-    if !contact.website.is_empty() {
-        vcard.entries.push(
-            VCardEntry::new(VCardProperty::Url)
-                .with_value(VCardValue::Text(contact.website.clone()))
-        );
-    }
-
-    // BDAY
-    if let Some(bday) = contact.birthday {
-        vcard.entries.push(
-            VCardEntry::new(VCardProperty::Bday)
-                .with_value(VCardValue::Text(bday.format("%Y-%m-%d").to_string()))
-        );
-    }
-
-    // NOTE (from markdown body, not frontmatter)
-    if !notes.is_empty() {
-        vcard.entries.push(
-            VCardEntry::new(VCardProperty::Note)
-                .with_value(VCardValue::Text(notes.to_string()))
-        );
-    }
-
-    vcard.to_string()
-}
-
-/// Split "First Last" into (given, family). Handles multi-word names.
-fn split_name(name: &str) -> (String, String) {
-    let parts: Vec<&str> = name.splitn(2, ' ').collect();
-    match parts.len() {
-        0 => (String::new(), String::new()),
-        1 => (parts[0].to_string(), String::new()),
-        _ => (parts[0].to_string(), parts[1].to_string()),
-    }
-}
-```
-
-**Field mapping table:**
-
-| Contact Field | vCard Property | Notes |
-|---------------|---------------|-------|
-| `name` | `FN` | Direct mapping |
-| `name` (split) | `N` | Family;Given;;; structured format |
-| `email[]` | `EMAIL` | One entry per address |
-| `phone[]` | `TEL` | One entry per number |
-| `company` | `ORG` | Single value |
-| `role` | `TITLE` | vCard uses TITLE not ROLE |
-| `website` | `URL` | Single value |
-| `birthday` | `BDAY` | YYYY-MM-DD format |
-| body notes | `NOTE` | Extract from ## Notes section |
-| `source_id` / uid | `UID` | Must match URL filename |
-| -- | -- | tags, status, priority, follow_up_cadence are CRM-only, NOT serialized |
-
-### Pattern 3: Selective Sync Filters
-
-**What:** Predicate functions that determine whether a contact should be included in push/pull.
-**When:** Before processing each contact in the sync loop.
-
-```rust
-// In sync/filter.rs -- new module
-pub struct SyncFilter {
-    pub tags: Vec<String>,         // include contacts with ANY of these tags
-    pub exclude_tags: Vec<String>, // exclude contacts with ANY of these tags
-    pub statuses: Vec<Status>,     // include contacts with ANY of these statuses
-}
-
-impl SyncFilter {
-    pub fn matches(&self, contact: &Contact) -> bool {
-        // If no filters set, match everything
-        if self.tags.is_empty() && self.statuses.is_empty() && self.exclude_tags.is_empty() {
-            return true;
-        }
-        // Check exclude tags first (exclusion wins)
-        if self.exclude_tags.iter().any(|t| contact.tags.contains(t)) {
-            return false;
-        }
-        // Check include tags (empty = no tag constraint)
-        let tag_match = self.tags.is_empty()
-            || self.tags.iter().any(|t| contact.tags.contains(t));
-        // Check statuses (empty = no status constraint)
-        let status_match = self.statuses.is_empty()
-            || contact.status.as_ref().map_or(false, |s| {
-                self.statuses.iter().any(|fs| std::mem::discriminant(s) == std::mem::discriminant(fs))
-            });
-
-        tag_match && status_match
-    }
-
-    pub fn empty() -> Self {
-        Self { tags: vec![], exclude_tags: vec![], statuses: vec![] }
-    }
-}
-```
-
-Config format in `~/.config/acrm/sync.toml`:
-```toml
-apple_id = "user@icloud.com"
-auto_push = false
-
-[push_filter]
-tags = ["professional", "family"]
-exclude_tags = ["private"]
-
-[pull_filter]
-# empty = pull everything (default)
-```
-
-### Pattern 4: CardDAV DELETE
-
-**What:** Remove a contact from the server.
-**When:** Contact archived/deleted locally with `source == "icloud"`.
-
-```rust
-// In CardDavClient -- new method
-pub fn delete_vcard(&self, vcard_url: &Url, etag: &str) -> Result<bool> {
-    let response = self.client
-        .request(Method::DELETE, vcard_url.as_str())
-        .header("If-Match", format!("\"{}\"", etag))
-        .basic_auth(&self.apple_id, Some(&self.app_password))
-        .send()?;
-
-    match response.status().as_u16() {
-        200 | 204 => Ok(true),
-        404 => Ok(true),  // Already gone, not an error
-        412 => bail!("Conflict: server version changed since last sync. Re-sync first."),
-        status => bail!("DELETE failed with status {}", status),
-    }
-}
-```
-
-## Anti-Patterns to Avoid
-
-### Anti-Pattern 1: Full Re-download on Every Push
-
-**What:** Fetching all vCards from iCloud before pushing to compare content.
-**Why bad:** Wastes bandwidth and time. With 700+ contacts, this adds 10+ seconds per sync.
-**Instead:** Use ETags for change detection. PROPFIND the list (lightweight, returns hrefs + etags only) to get current server state, then compare locally. Only fetch full vCards when needed.
-
-### Anti-Pattern 2: Storing Sync State Outside Contact Files
-
-**What:** Creating a separate sync ledger/database (e.g., `.sync/carddav-state.yaml`) to track push state.
-**Why bad:** Violates the flat-file architecture. Adds another state to keep in sync. Git history already tracks changes. The v1.0 architecture already stores `source`, `source_id`, and `etag` in frontmatter -- this is the right approach.
-**Instead:** The contact's `etag` and `source_id` fields in frontmatter ARE the sync state. After a successful push, update these fields in place. A contact with empty `source_id` has never been pushed. A contact with `source: "icloud"` and a `source_id` is tracked.
-
-### Anti-Pattern 3: Async HTTP for Push
-
-**What:** Switching to tokio/async reqwest for parallel pushes.
-**Why bad:** Adds significant complexity (tokio runtime, async infection). The existing codebase uses `reqwest::blocking` consistently. Parallel requests to iCloud may also trigger rate limiting.
-**Instead:** Push contacts sequentially. For typical pushes (0-5 changed contacts), this takes seconds. For a full initial push of 700 contacts, ~2-3 minutes is acceptable for a CLI tool run once.
-
-### Anti-Pattern 4: Two-Way Field-Level Merge on Conflict
-
-**What:** Attempting to merge individual fields when both local and server have changes.
-**Why bad:** Enormous complexity. Which fields win? What about deleted fields? Merge semantics for arrays (emails, phones) are ambiguous. The project constraint explicitly says "CRM wins."
-**Instead:** On conflict, warn the user and overwrite the entire server vCard. Log which contacts had conflicts in the push result output.
-
-## Integration Points
-
-### 1. CardDavClient (sync/carddav.rs) -- 2 new methods
-
-Add `put_vcard()` and `delete_vcard()` to the existing `CardDavClient` struct. These follow the same pattern as existing methods (basic auth, error handling, status code matching) but use PUT and DELETE methods.
-
-New struct needed:
-```rust
-pub struct PutResult {
-    pub new_etag: Option<String>,
-    pub conflict: bool,
-}
-```
-
-### 2. VCard Serialization (sync/vcard_map.rs) -- 1 new public function + 1 helper
-
-Add `map_contact_to_vcard(contact: &Contact, uid: &str, notes: &str) -> String` as the reverse of `map_vcard_to_contact()`. Pure function, no side effects, fully unit-testable with round-trip tests (parse -> map to contact -> map back to vcard -> parse again -> compare).
-
-Add `split_name(name: &str) -> (String, String)` helper for structured name decomposition.
-
-### 3. Push Orchestration (sync/push.rs) -- new module
-
-The largest new component. Orchestrates:
-
-1. Load all local contacts via `store::load_all_contacts()`
-2. Apply push filter via `filter::SyncFilter::matches()`
-3. Discover address book (reuses `CardDavClient::discover_address_book()`)
-4. PROPFIND to get current server ETag list (reuses `CardDavClient::fetch_vcard_list()`)
-5. Build server ETag index: `HashMap<String, String>` mapping source_id -> server_etag
-6. For each filtered local contact, determine action:
-   - **New (no source_id):** Generate UUID as UID, build vCard URL as `{addressbook_url}/{uid}.vcf`, PUT, store source_id + ETag
-   - **Update (source_id exists, ETag matches server):** PUT with If-Match
-   - **Conflict (source_id exists, ETag differs):** Warn, PUT with If-Match: * (CRM wins)
-   - **Delete (archived + has source_id):** DELETE, clear sync fields
-   - **Unchanged (source_id exists, no local changes detected):** Skip
-7. Update contact frontmatter on disk after each successful push
-8. Return `PushResult` struct with counts and details
-
-### 4. Filter Module (sync/filter.rs) -- new module
-
-Pure predicate logic. Constructed from config. Applied in both push and pull paths. No dependencies beyond `models::Contact`.
-
-### 5. Config Extension (sync/config.rs) -- modify
-
-Add parsing for new TOML fields: `auto_push` (bool), `push_filter` (table), `pull_filter` (table). Backward-compatible: missing fields default to `false` / empty filters.
-
-### 6. CLI Wiring (main.rs + commands/sync.rs)
-
-```rust
-#[derive(Subcommand)]
-enum SyncAction {
-    /// Set up iCloud credentials
-    Setup,
-    /// Push local changes to iCloud
-    Push {
-        /// Show what would change without writing
-        #[arg(long)]
-        dry_run: bool,
-        /// Force push all contacts (ignore conflicts)
-        #[arg(long)]
-        force: bool,
-    },
-}
-```
-
-The existing `acrm sync` (no subcommand) remains pull-only for backward compatibility. `acrm sync push` is the new push command. Filters apply to both directions automatically.
-
-### 7. Frontmatter Updates After Push
-
-After a successful PUT, update the contact file's frontmatter:
-- `source` -> `"icloud"` (if was empty)
-- `source_id` -> the UID used in the vCard URL
-- `etag` -> the new ETag from the server response
-
-Use existing `frontmatter::update_field()` + direct file write, matching the pattern already used in `update_existing_contact()` in `commands/sync.rs`.
-
-## URL Construction for New Contacts
-
-For new contacts (no existing server resource), construct the PUT URL:
-
-```
-{addressbook_url}/{uid}.vcf
-```
-
-Where `uid` is a newly generated UUID (via `uuid::Uuid::new_v4()`). iCloud accepts UUID-format filenames for new vCard resources. The UID property inside the vCard body must match this filename (without the `.vcf` extension).
-
-## Suggested Build Order
-
-Build order follows dependency chain. Each step can be tested independently before proceeding:
-
-```
-Step 1: vcard_map (reverse mapping)     -- no network deps, pure functions
+AI Agent (Claude, Cursor, etc.)
     |
-Step 2: carddav (PUT/DELETE methods)    -- no new struct deps
+    v (JSON-RPC over stdio)
+rmcp transport layer (tokio async)
     |
-Step 3: filter (predicate module)       -- no deps beyond models
+    v (deserialize tool call, dispatch)
+mcp/server.rs -- #[tool] handler
     |
-Step 4: config (extended TOML parsing)  -- depends on filter types
+    v (spawn_blocking -- cross async/sync boundary)
+ops.rs -- pure business logic (synchronous)
     |
-Step 5: push (orchestration)            -- depends on steps 1-4
+    v (read/write)
+store.rs --> contacts/*.md
     |
-Step 6: CLI wiring                      -- depends on step 5
+    v (Result<T>)
+mcp/server.rs -- serialize to JSON Content
     |
-Step 7: auto-push on save (optional)    -- depends on step 6
+    v (JSON-RPC response)
+AI Agent
 ```
 
-**Rationale:**
-- Steps 1-3 are independent and could be built in parallel
-- Step 4 depends on filter types being defined
-- Step 5 is the integration point that wires everything together
-- Step 6 is thin CLI plumbing
-- Step 7 is a refinement that hooks into existing edit/log commands
+### Bulk Operation Flow
 
-## Scalability Considerations
+```
+acrm bulk 'status=dormant AND last_contacted<2025-01-01' --set status=archived
+    |
+    v
+commands/bulk.rs -- parse args
+    |
+    v
+query/parser.rs --> Vec<Predicate>
+    |
+    v
+store::load_all_contacts() + query/filter.rs --> matched Vec<ContactFile>
+    |
+    v (for each matched contact)
+ops::edit_contact() --> write updated file
+    |
+    v
+format: human summary or JSON array of results
+```
 
-| Concern | Current (~700 contacts) | At 5K contacts | At 50K contacts |
-|---------|------------------------|-----------------|------------------|
-| PROPFIND list | <1s | 2-3s | 10-15s |
-| Sequential PUTs (all) | ~2min | ~15min | Impractical |
-| Typical push (changed only) | <5s | <5s | <5s |
-| Mitigation | Push only changed | Push only changed | Need change tracking log |
+### JSON Pipe Flow
 
-For the current scale, sequential push of changed-only contacts is the right approach. Most syncs will push 0-5 contacts.
+```
+acrm search "linkedin" --format json | acrm bulk --stdin --set status=dormant
+    |                                        |
+    v                                        v
+stdout: JSON array of contacts         stdin: parse JSON, extract contact names/paths
+                                              |
+                                              v
+                                        For each: ops::edit_contact() --> write
+```
+
+The `--stdin` flag reads JSON array from stdin. Each object must have a `name` or `path` field to identify the contact. This avoids re-loading and re-filtering -- the upstream command already selected the contacts.
+
+### LinkedIn Automation Flow
+
+```
+acrm import linkedin <path/to/Connections.csv>     # manual CSV import
+acrm import linkedin --auto                        # automated export + import
+
+Manual path:
+    Connections.csv --> linkedin/csv_import.rs --> parse rows
+        --> linkedin/dedup.rs --> compare against existing (source=linkedin)
+        --> ops::add_contact() for new / ops::edit_contact() for changed
+
+Auto path:
+    linkedin/automation.rs --> shell out to scripts/linkedin-export.js
+        --> Playwright: login, navigate, request export, poll for download
+        --> CSV downloaded to temp dir
+        --> continue with manual path above
+```
+
+## Key Integration Points
+
+### What Changes in Existing Code
+
+| File | Change | Scope |
+|------|--------|-------|
+| `main.rs` | Add `Serve`, `Bulk`, `Import` subcommands to `Commands` enum | Small -- 3 new match arms |
+| `commands/mod.rs` | Add `pub mod bulk; pub mod import;` | Trivial |
+| `Cargo.toml` | Add rmcp, tokio, csv dependencies | Dependencies only |
+| `commands/search.rs` | Extract filter logic to `ops.rs`, call `ops::search_contacts()` | Refactor -- behavior unchanged |
+| `commands/edit.rs` | Extract edit logic to `ops.rs`, call `ops::edit_contact()` | Refactor -- behavior unchanged |
+| `commands/add.rs` | Extract add logic to `ops.rs` | Refactor -- behavior unchanged |
+| `commands/log.rs` | Extract log logic to `ops.rs` | Refactor -- behavior unchanged |
+| `commands/due.rs` | Extract due logic to `ops.rs` | Refactor -- behavior unchanged |
+| `commands/show.rs` | Extract show logic to `ops.rs` | Refactor -- behavior unchanged |
+| `commands/list.rs` | Extract list logic to `ops.rs` | Refactor -- behavior unchanged |
+| `commands/delete.rs` | Extract delete logic to `ops.rs` | Refactor -- behavior unchanged |
+| `commands/archive.rs` | Extract archive logic to `ops.rs` | Refactor -- behavior unchanged |
+
+### What Does NOT Change
+
+- `store.rs` -- Already provides the right abstractions
+- `frontmatter.rs` -- Used transitively, no direct changes
+- `validation.rs` -- Called by `store::write_contact()`
+- `models/` -- `Contact` and `ContactFile` already `Serialize`
+- `sync/` -- CardDAV sync is independent
+- `tui/` -- TUI is independent
+- `format.rs` -- CLI formatting stays as-is
+
+### New Dependencies
+
+| Crate | Version | Purpose | Feature Flags |
+|-------|---------|---------|---------------|
+| `rmcp` | 0.16 | Official MCP SDK | `server`, `transport-io`, `macros` |
+| `tokio` | 1 | Async runtime (MCP server only) | `full` |
+| `csv` | 1 | LinkedIn CSV parsing | default |
+
+Note: `serde_json` and `uuid` already present in dependencies.
+
+## Binary Strategy
+
+**Recommended: Same binary, new subcommand.**
+
+```
+acrm serve                      # Start MCP server (stdio transport)
+acrm serve --transport http     # Future: Streamable HTTP transport
+acrm bulk '<query>' --set k=v   # Bulk operations
+acrm import linkedin <file>     # LinkedIn CSV import
+acrm import linkedin --auto     # LinkedIn automated export + import
+```
+
+Rationale: Single binary eliminates distribution complexity. The tokio dependency adds ~2MB but only the `serve` subcommand uses the async runtime. All other commands remain synchronous -- tokio is only initialized when `acrm serve` is called.
+
+## MCP Transport Choice
+
+**Use stdio transport. Do NOT implement Streamable HTTP initially.**
+
+- stdio is standard for local MCP tools (Claude Desktop, Cursor, etc. spawn the binary as a child process)
+- SSE is deprecated in the MCP spec -- replaced by Streamable HTTP
+- Streamable HTTP is for remote/multi-user servers -- this is a personal local-first tool
+- stdio requires zero network configuration, zero auth setup
+
+The `--transport http` flag can be added later if remote access is needed, but stdio covers the primary use case.
+
+## MCP Tools to Expose
+
+| Tool Name | Maps to | Read/Write | Parameters |
+|-----------|---------|------------|------------|
+| `search_contacts` | `ops::search_contacts()` | Read | `query: String` |
+| `show_contact` | `ops::show_contact()` | Read | `name: String` |
+| `list_contacts` | `ops::list_contacts()` | Read | `tag: Option<String>` |
+| `due_followups` | `ops::due_contacts()` | Read | (none) |
+| `add_contact` | `ops::add_contact()` | Write | `name: String` |
+| `edit_contact` | `ops::edit_contact()` | Write | `name: String, fields: Vec<KeyValue>` |
+| `log_interaction` | `ops::log_interaction()` | Write | `name, type, summary, notes` |
+| `delete_contact` | `ops::delete_contact()` | Write | `name: String` |
+| `archive_contact` | `ops::archive_contact()` | Write | `name: String` |
+| `bulk_query` | `query + ops` | Read | `query: String` |
+| `bulk_update` | `query + ops::edit` | Write | `query: String, fields: Vec<KeyValue>` |
+
+## Anti-Patterns
+
+### Anti-Pattern 1: Duplicating Business Logic in MCP Handlers
+
+**What people do:** Copy-paste logic from CLI command handlers into MCP tool handlers.
+**Why it's wrong:** Two copies diverge over time. Bug fixes applied to one path but not the other.
+**Do this instead:** Extract to `ops.rs`. Both CLI commands and MCP tools become thin wrappers.
+
+### Anti-Pattern 2: Making the Entire Codebase Async
+
+**What people do:** See that rmcp requires async, convert everything to async/await.
+**Why it's wrong:** This is a file I/O tool on local disk. Async adds complexity (lifetimes, `Send` bounds, colored function problem) with zero performance benefit. 4,700+ LOC of working synchronous code would need rewriting.
+**Do this instead:** Keep core synchronous. `spawn_blocking` at the MCP boundary only.
+
+### Anti-Pattern 3: Building a Complex Query Language Parser
+
+**What people do:** Build a recursive-descent parser for SQL-like queries with OR, grouping, subqueries.
+**Why it's wrong:** Over-engineered for <10K contacts filtered in memory. Parsing edge cases consume weeks.
+**Do this instead:** Simple `key{op}value` predicates joined by ` AND `. For complex queries, pipe JSON through `jq`.
+
+### Anti-Pattern 4: Running Playwright from Rust Directly
+
+**What people do:** Embed Playwright via `playwright-rust` crate FFI.
+**Why it's wrong:** `playwright-rust` still requires Node.js and npm Playwright. Adds massive dependency for an experimental feature. Breaks the "no runtime dependencies" constraint.
+**Do this instead:** Ship a small JS Playwright script as `scripts/linkedin-export.js`. Shell out to it via `std::process::Command`. Independently testable, independently updatable.
+
+### Anti-Pattern 5: MCP Server as a Separate Binary
+
+**What people do:** Create a separate `acrm-mcp` binary to avoid pulling tokio into the main binary.
+**Why it's wrong:** Two binaries to build, distribute, and keep in sync. Requires extracting shared code into a library crate -- significant restructuring.
+**Do this instead:** Single binary with `acrm serve` subcommand. Tokio only initializes when `serve` is called. ~2MB binary size increase is acceptable.
+
+## Build Order (Dependency-Aware)
+
+```
+Phase 1: Operations Layer Extraction (PREREQUISITE)
+    Extract ops.rs from commands/
+    Refactor all commands to delegate to ops.rs
+    Verify all existing tests pass
+    |
+Phase 2: Bulk Operations
+    query/parser.rs -- parse query syntax
+    query/filter.rs -- apply predicates to contacts
+    commands/bulk.rs -- CLI subcommand
+    JSON stdin pipe support (--stdin flag)
+    |
+Phase 3: MCP Server
+    Add rmcp + tokio dependencies
+    mcp/server.rs -- ServerHandler with #[tool(tool_box)]
+    mcp/tools.rs -- tool definitions calling ops.rs
+    commands/serve.rs -- CLI entry point
+    |
+Phase 4: LinkedIn Automation (independent, experimental)
+    linkedin/csv_import.rs -- Rust port of import-linkedin.sh
+    linkedin/dedup.rs -- change detection vs existing contacts
+    scripts/linkedin-export.js -- Playwright automation script
+    linkedin/automation.rs -- shell out + import orchestration
+    commands/import.rs -- CLI subcommand
+```
+
+**Phase ordering rationale:**
+1. **ops.rs first** -- both MCP and bulk ops need it. Pure refactor, no new features. Existing tests validate behavior preservation.
+2. **Bulk ops before MCP** -- simpler (no async, no protocol), validates ops layer works for multi-contact operations. Query engine also reusable by MCP.
+3. **MCP after bulk** -- depends on ops.rs being stable. Introduces async boundary + new protocol. Benefits from query engine already existing.
+4. **LinkedIn last** -- marked experimental, external dependencies (Node.js + Playwright), fully independent of other features. CSV import (pure Rust) can ship without Playwright automation.
 
 ## Sources
 
-- [RFC 6352 - CardDAV](https://datatracker.ietf.org/doc/html/rfc6352) -- ETag conflict detection (If-Match), PUT/DELETE semantics, Section 6.3.2 (HIGH confidence)
-- [calcard docs - VCard struct](https://docs.rs/calcard/latest/calcard/vcard/struct.VCard.html) -- `entries: Vec<VCardEntry>`, `Default` impl, `.to_string()` serialization (HIGH confidence)
-- [calcard docs - VCardEntry](https://docs.rs/calcard/latest/calcard/vcard/struct.VCardEntry.html) -- `new(prop).with_value(val)` builder API, `with_values()`, `with_param()` (HIGH confidence)
-- [calcard docs - VCardValue](https://docs.rs/calcard/latest/calcard/vcard/enum.VCardValue.html) -- `Text(String)`, `Component(Vec<String>)`, `From<String>` impl (HIGH confidence)
-- [calcard GitHub](https://github.com/stalwartlabs/calcard) -- `.to_string()` produces valid vCard text (HIGH confidence)
-- Existing codebase analysis: `src/sync/carddav.rs`, `src/sync/vcard_map.rs`, `src/store.rs`, `src/models/contact.rs`, `src/commands/sync.rs`, `src/sync/dedup.rs` (HIGH confidence)
+- [Official Rust MCP SDK (rmcp)](https://github.com/modelcontextprotocol/rust-sdk) -- v0.16.0, official implementation with `#[tool]` macros
+- [rmcp on crates.io](https://crates.io/crates/rmcp) -- v0.16.0 with server, transport-io, macros features
+- [MCP Transports Specification](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports) -- stdio vs Streamable HTTP decision
+- [Why MCP Deprecated SSE](https://blog.fka.dev/blog/2025-06-06-why-mcp-deprecated-sse-and-go-with-streamable-http/) -- SSE replaced by Streamable HTTP
+- [MCP Transport Comparison](https://mcpcat.io/guides/comparing-stdio-sse-streamablehttp/) -- stdio for local tools, HTTP for remote
+- [LinkedIn Export Help](https://www.linkedin.com/help/linkedin/answer/a566336/export-connections-from-linkedin) -- CSV format and limitations
+- [Playwright Rust Bindings](https://github.com/octaltree/playwright-rust) -- requires Node.js, not standalone Rust
+- Existing codebase analysis: all source files in `src/` (HIGH confidence)
+
+---
+*Architecture research for: AgenticCRM v1.2 MCP, Bulk Ops & LinkedIn*
+*Researched: 2026-03-08*

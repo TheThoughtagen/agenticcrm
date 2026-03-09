@@ -1,246 +1,274 @@
-# Pitfalls Research: Adding Two-Way CardDAV Push Sync
+# Pitfalls Research
 
-**Domain:** Adding CardDAV PUT/DELETE push, ETag conflict detection, and selective sync to existing pull-only iCloud sync
-**Researched:** 2026-03-07
-**Confidence:** HIGH (verified against RFC 6352, sabre/dav official guide, existing codebase inspection, and web-verified iCloud-specific behaviors)
+**Domain:** Adding MCP server, bulk operations, and LinkedIn automation to a Rust CLI CRM with flat file storage
+**Researched:** 2026-03-08
+**Confidence:** HIGH (core async/sync and concurrency pitfalls), MEDIUM (LinkedIn automation specifics)
 
 ## Critical Pitfalls
 
-### Pitfall 1: Lossy vCard Reconstruction Destroys iCloud Data on Push
+### Pitfall 1: reqwest::blocking Panics Inside Tokio Async Runtime
 
 **What goes wrong:**
-The existing pull sync maps vCard fields to our Contact model via `vcard_map.rs`, but discards all unmapped vCard properties (photos, X-properties, custom fields, IMPP, RELATED, ADR structure, TEL/EMAIL TYPE parameters). When pushing back via PUT, the reconstructed vCard lacks these properties. iCloud replaces the server copy with our stripped-down version, destroying data the user added via their phone's Contacts app (contact photos, Siri suggestions, linked contacts, address labels like "home"/"work").
+The existing codebase uses `reqwest::blocking::Client` for CardDAV sync (`src/sync/carddav.rs`). The MCP server (rmcp crate) requires tokio async runtime. If MCP tool handlers call existing sync code that uses `reqwest::blocking`, tokio panics with "Cannot drop a runtime in a context where blocking is not allowed." This is a hard crash, not a subtle bug.
 
 **Why it happens:**
-The v1.0 pull sync was one-directional -- it only read vCards and mapped them to our model. There was no need to preserve unmapped properties because we never wrote back. Adding push changes this fundamentally: every PUT replaces the server's vCard wholesale.
+`reqwest::blocking` internally creates its own tokio runtime via `block_on()`. Calling `block_on()` inside an existing tokio runtime is forbidden -- it is a nested runtime panic. The existing `CardDavClient` uses `reqwest::blocking::Client` throughout, and every store operation uses synchronous `std::fs` calls. When the MCP server invokes these from an async handler, it hits the nested-runtime panic.
 
 **How to avoid:**
-- Store the original raw vCard text alongside each synced contact. Add a `.sync/vcards/{source_id}.vcf` cache directory (gitignored) that retains the full vCard fetched during pull.
-- On push, start from the cached original vCard, then merge only the fields our CRM tracks (name, email, phone, company, role, website, birthday, notes) back into it. This preserves photos, TYPE parameters, X-properties, and everything else.
-- If no cached vCard exists (CRM-created contact, never pulled), construct a minimal but valid vCard 3.0 from scratch.
-- The sabre/dav guide explicitly warns: "Retain the entire vCard... mapping back and forward tends to be a lossy process."
+Use `tokio::task::spawn_blocking()` to wrap all existing synchronous code calls within MCP tool handlers. This offloads blocking work to a dedicated thread pool while requiring zero changes to the existing CLI code. The MCP server becomes a thin async shell around the existing sync core. Do NOT attempt to convert the entire codebase to async -- the CLI and TUI work fine synchronously and the project is 4,700+ LOC. A full async migration is a rewrite, not a feature addition.
 
 **Warning signs:**
-- Building a `contact_to_vcard()` function that constructs vCards from scratch for existing synced contacts.
-- No `.vcf` cache directory in the design.
-- The vcard_map module only has `map_vcard_to_contact` with no reverse path that considers the original.
+- Any `reqwest::blocking` import visible in code called from async context
+- Test that invokes an MCP tool panics immediately with runtime error
+- Store functions (`load_all_contacts`, `write_contact`) called directly in an `async fn`
 
 **Phase to address:**
-Phase 1 (Push infrastructure). The vCard cache must be implemented before any PUT operations. Retrofitting the cache after push is already shipping means contacts synced in the gap lose data.
+MCP Server phase -- must be the first architectural decision before writing any tool handlers.
 
 ---
 
-### Pitfall 2: Stale ETag on Push Causes 412 Failures or Silent Overwrites
+### Pitfall 2: Concurrent File Writes from MCP Server Corrupt Contact Files
 
 **What goes wrong:**
-The existing pull sync stores the ETag in contact frontmatter (`etag` field) at pull time. Between pulls, the contact may be edited on iCloud (phone, web, another device). When push sends a PUT with `If-Match: <stale-etag>`, iCloud returns 412 Precondition Failed. If the developer "fixes" this by dropping `If-Match` entirely, the PUT silently overwrites the server version.
+The CLI is single-threaded and single-invocation: one user runs one command at a time. The MCP server handles multiple concurrent requests from AI agents. Two simultaneous `edit` or `log` operations on the same contact file cause a read-modify-write race condition. Both read the file, both modify it in memory, one write overwrites the other's changes. With flat file storage and no database, there is no built-in concurrency control.
 
 **Why it happens:**
-The v1.0 system stores ETags but only uses them for pull-side change detection (`dedup::should_update`). Developers assume the stored ETag is still valid for writes, but any server-side change between sync cycles invalidates it.
+`store::write_contact()` does a plain `std::fs::write()` with no locking. The `frontmatter::update_field()` pattern reads the full raw YAML, modifies it in memory, and writes back. Two concurrent operations on the same file silently lose one set of changes. No error, no crash, just lost data.
 
 **How to avoid:**
-- Before any PUT, fetch the current ETag from iCloud via a targeted PROPFIND on that specific resource. Compare with our stored ETag.
-- If ETags match: push with `If-Match: <etag>`. The contact has not changed server-side.
-- If ETags differ: the contact was modified on iCloud since our last pull. This is a conflict. Apply "CRM wins" policy by: (1) fetching the current server vCard, (2) logging the conflict, (3) pushing our version with `If-Match: <current-server-etag>`.
-- On 412 response despite our checks (race condition), re-fetch ETag and retry up to 3 times.
-- Always use `If-None-Match: *` when creating new contacts to prevent overwriting an existing resource at that URL.
+Implement per-file locking in the MCP server layer using a `DashMap<PathBuf, Arc<Mutex<()>>>` or similar structure to serialize access per contact file. Hold the lock for the entire read-modify-write cycle, release after write completes. Combine with atomic writes (write to temp file, then `rename()`) to prevent partial writes. Do NOT use OS-level file locks (flock) -- they are advisory on most Unix systems, unreliable across platforms, and add complexity without benefit for a single-process server.
 
 **Warning signs:**
-- PUT requests that use the frontmatter `etag` field directly without freshness check.
-- No handling of HTTP 412 responses.
-- PUT requests without any `If-Match` header.
+- MCP test with concurrent tool calls produces inconsistent results
+- Interaction log entries disappear intermittently
+- Contact field edits are silently reverted
 
 **Phase to address:**
-Phase 1 (Push infrastructure) for the ETag refresh mechanism. Phase 2 (Conflict detection) for the full conflict resolution flow.
+MCP Server phase -- implement locking layer before exposing any write tools.
 
 ---
 
-### Pitfall 3: iCloud Rewrites vCards After PUT, Invalidating the Returned ETag
+### Pitfall 3: Using Deprecated HTTP+SSE Transport Instead of stdio or Streamable HTTP
 
 **What goes wrong:**
-iCloud's CardDAV server normalizes vCards after accepting a PUT. It may reorder properties, canonicalize phone number formats, adjust line folding, add or modify `PRODID`, or strip properties it does not support. Per RFC 6352, when the stored vCard is not octet-identical to what was submitted, the server must NOT return a strong ETag in the PUT response. Many developers assume the PUT response always includes a usable ETag for subsequent operations, leading to sync state corruption.
+The PROJECT.md specifies "MCP server (HTTP/SSE)" but the MCP specification deprecated HTTP+SSE transport in spec version 2025-03-26, replacing it with Streamable HTTP. Building on SSE means building on a deprecated standard that clients will stop supporting.
 
 **Why it happens:**
-The RFC allows servers to modify vCards post-PUT. iCloud exercises this right aggressively. Developers test with simple vCards that happen to survive normalization unchanged, and miss the issue.
+Most MCP tutorials from 2024-early 2025 show SSE transport. The deprecation happened mid-2025 and many guides have not been updated. The rmcp crate supports both, so it compiles either way.
 
 **How to avoid:**
-- After every successful PUT (201 Created or 204 No Content), check if the response includes an ETag header.
-- If ETag is present: store it.
-- If ETag is absent: immediately issue a GET (or PROPFIND for just the ETag) on the same resource URL to retrieve the server's canonical version and its ETag. Update both the local vCard cache and the stored ETag.
-- Update the contact's frontmatter `etag` field with the post-PUT ETag, not the pre-PUT one.
-- This GET-after-PUT pattern is explicitly recommended by sabre/dav documentation.
+Use stdio transport for the initial implementation. This is a local, single-user tool. stdio is the most common MCP transport, most interoperable with AI clients (Claude Desktop, Cursor, etc.), and recommended by the MCP specification for local tools. No HTTP server complexity, no port management, no CORS. If HTTP is needed later, add Streamable HTTP (not SSE) as a second transport option.
 
 **Warning signs:**
-- Code that assumes `response.headers().get("etag")` always returns `Some`.
-- No fallback GET after PUT.
-- Tests that mock PUT responses with ETags but do not test the no-ETag path.
+- Importing SSE-specific transport types from rmcp
+- Setting up HTTP server with `/sse` endpoint
+- Configuring CORS headers (unnecessary for stdio)
 
 **Phase to address:**
-Phase 1 (Push infrastructure). This must be part of the core PUT implementation, not a later fix.
+MCP Server phase -- transport decision at the start.
 
 ---
 
-### Pitfall 4: Accidental Mass Delete on iCloud When Push Encounters Unsynced Contacts
+### Pitfall 4: LinkedIn Automation Gets Account Restricted or Banned
 
 **What goes wrong:**
-The CRM has contacts from multiple sources (manual entry, LinkedIn import, iCloud pull). When implementing push, if the sync logic interprets "contact exists in CRM but not in push queue" as "should be deleted from iCloud," or if a filter misconfiguration excludes most contacts from the push set, the system could DELETE hundreds of contacts from iCloud in one sync cycle.
+LinkedIn actively detects and restricts accounts using automation tools. Restrictions range from temporary rate limits to permanent account bans. Using Playwright to navigate LinkedIn's UI triggers bot detection via browser fingerprinting, navigation patterns, and request timing analysis.
 
 **Why it happens:**
-The most dangerous moment is the first push after implementing delete propagation. The sync logic must distinguish between: (a) contact was deleted from CRM and should be deleted from iCloud, (b) contact was never synced to iCloud and should be left alone, (c) contact does not match the current sync filter. Getting this wrong in any direction causes data loss.
+LinkedIn's bot detection checks: `navigator.webdriver` flag, browser plugin fingerprints, request timing (too fast = bot), navigation flow (skipping intermediate pages), fresh session patterns, and excessive action creation. Playwright's default configuration exposes all of these signals. LinkedIn has stated that in 2025-2026 they will limit visibility of content created via automation tools.
 
 **How to avoid:**
-- Track sync state explicitly per contact. A contact should only be DELETE-eligible if it has `source: "icloud"` AND a valid `source_id` AND was previously successfully synced (has a stored ETag).
-- Never delete contacts that were created locally and never pushed.
-- Implement a hard safety limit: if more than N contacts (e.g., 10) would be deleted in a single sync cycle, abort and require `--force` confirmation. This catches filter misconfigurations.
-- Always show a preview of deletes before executing: "Will delete 3 contacts from iCloud: [names]. Proceed? [y/N]"
-- Log all deletes to a sync log file with timestamps for recovery.
+Do NOT automate LinkedIn's web UI for data export. Instead, automate the import of LinkedIn's official GDPR data export (Settings > Data Privacy > Get a copy of your data > Connections). LinkedIn emails a CSV within 10 minutes to 24 hours. The `acrm` tool should automate the CSV import/dedup/change-detection side, not the export side.
+
+If Playwright automation is still desired (marked experimental in PROJECT.md for good reason):
+- Target only the GDPR export request page (Settings > Data Privacy), not general browsing
+- Use headed mode (not headless) -- LinkedIn detects headless browsers
+- Add realistic delays (2-5 seconds between actions, random jitter)
+- Implement circuit breaker: if any request returns 429 or a challenge page, stop immediately
+- Never run against a primary LinkedIn account for development/testing
 
 **Warning signs:**
-- Delete logic that iterates iCloud contacts and removes any without a local match.
-- No confirmation prompt for deletes.
-- No upper bound on batch deletes.
+- LinkedIn showing CAPTCHA challenges during automation
+- "Unusual activity" emails from LinkedIn
+- Automation working initially then failing after a few runs
 
 **Phase to address:**
-Phase 1 (Push infrastructure) for the delete safeguards. Must be in place before any DELETE requests are sent.
+LinkedIn Automation phase -- this should be the LAST phase and marked experimental throughout.
 
 ---
 
-### Pitfall 5: Push-Then-Pull Loop Creates Infinite Sync Cycles
+### Pitfall 5: playwright-rust Crate Is Immature and Adds Node.js Runtime Dependency
 
 **What goes wrong:**
-Push modifies a contact on iCloud, which changes the server ETag. The next pull detects the ETag change and "updates" the local contact with the server version (which is actually the same data we just pushed, possibly reformatted by iCloud). This triggers another push because the local file was modified. The system oscillates between push and pull indefinitely, or at minimum does redundant work every cycle.
+The `playwright-rust` crate (v0.0.20) is a wrapper around the Node.js Playwright library. It requires Node.js installed at runtime, downloads browser binaries on first use, and has no stable releases. This violates the project constraint of "no runtime dependencies beyond the compiled binary."
 
 **Why it happens:**
-The v1.0 pull logic uses `dedup::should_update()` which compares ETags. After a push, the ETag changes (because the server modified the vCard). Pull sees a new ETag and overwrites the local contact with the server version. If the server-normalized data differs from what we have locally (even just whitespace in the raw frontmatter), the contact file changes, triggering another push.
+Playwright is fundamentally a Node.js tool. The Rust crate is a binding layer, not a native implementation. Every Playwright operation crosses the Rust-to-Node.js FFI boundary.
 
 **How to avoid:**
-- After a successful push, immediately update the local contact's `etag` field to the new server ETag (fetched via GET-after-PUT as described in Pitfall 3).
-- The pull logic should compare ETags against the post-push ETag, not the pre-push ETag. If they match, skip the update.
-- Consider a `last_push_etag` field or sync state entry that records "we pushed this ETag." During pull, if the server ETag matches `last_push_etag`, skip -- the change originated from us.
-- Do not modify any CRM-only fields (tags, status, follow_up_cadence, interaction log) during pull updates. Only update vCard-mapped fields. This prevents pull from dirtying the file and triggering another push.
+Write a small standalone Node.js/TypeScript script for the LinkedIn CSV export automation. Call it from Rust via `std::process::Command` only when the user explicitly requests LinkedIn export. Clean separation: the Node.js script can be tested independently, and the core `acrm` binary remains pure Rust with no Node.js dependency. The script is a companion tool in the repo, not a cargo dependency.
+
+Do NOT embed `playwright` or `playwright-rust` as a cargo dependency.
 
 **Warning signs:**
-- Sync logs showing the same contacts being "updated" on every sync cycle.
-- Pull immediately after push shows contacts as "updated" instead of "unchanged."
+- `playwright` appearing in Cargo.toml dependencies
+- Build process requiring `npx playwright install`
+- CI needing Node.js installed alongside Rust toolchain for core functionality
 
 **Phase to address:**
-Phase 2 (Conflict detection). Requires coordinating push and pull ETags in a unified sync state model.
+LinkedIn Automation phase -- architecture decision at phase start.
+
+---
+
+### Pitfall 6: Bulk Operations Pipe Chains Re-scan All Contacts Per Stage
+
+**What goes wrong:**
+`store::load_all_contacts()` reads and parses every `.md` file in `contacts/`. With ~800 contacts currently, this takes perhaps 100ms. Running a pipe chain like `acrm bulk 'status=dormant' --format json | acrm bulk --stdin --set status=archived` re-loads ALL contacts from disk for each pipe stage, multiplying I/O linearly.
+
+**Why it happens:**
+Flat file storage has no index. Every query is a full directory scan with YAML parsing. The CLI architecture assumes one-shot execution. Pipe chains multiply the cost by the number of stages.
+
+**How to avoid:**
+Design the pipe protocol to pass contact file paths (or IDs) through the pipe rather than full contact data. The receiving command loads only the specific files referenced in stdin. For single commands without piping, accept the full scan -- at <10K contacts (stated out-of-scope threshold for indexing), full scans complete in under 500ms. Do NOT add SQLite or any indexing layer; the project explicitly rules this out.
+
+**Warning signs:**
+- Bulk command taking >2 seconds with current contact count
+- Pipe chains noticeably slower than equivalent single commands
+- Temptation to add an indexing database "just for performance"
+
+**Phase to address:**
+Bulk Operations phase -- design the pipe protocol (IDs vs full data) before implementing.
+
+---
+
+### Pitfall 7: MCP Tool Handlers Exposing Unsafe Write Operations Without Guardrails
+
+**What goes wrong:**
+An AI agent calling MCP tools has no inherent judgment about destructive operations. A tool like `delete_contact` or `bulk_edit` exposed without guardrails lets an agent delete or modify contacts based on a misunderstood prompt. Unlike CLI usage where a human reviews each command, MCP tool calls happen programmatically and at speed.
+
+**Why it happens:**
+MCP tool implementations focus on functionality, not safety constraints. The developer exposes the same capabilities as the CLI without considering that the caller is an AI model that may misinterpret ambiguous instructions.
+
+**How to avoid:**
+- Make write tools require explicit confirmation fields: `bulk_edit` should require a `confirm: true` parameter, and the tool description should instruct the agent to confirm with the user first.
+- Add a `dry_run` parameter to all write tools. Agents should be encouraged (via tool descriptions) to dry-run first.
+- Implement a hard limit on bulk operations via MCP: no more than 50 contacts modified per single tool call.
+- Never expose `delete` as a tool that silently succeeds. Return a confirmation prompt that the agent must relay to the user.
+- Log all MCP write operations to a dedicated log file for audit.
+
+**Warning signs:**
+- MCP tool that modifies contacts without returning what was changed
+- No `dry_run` option on write tools
+- Agent able to delete contacts without any user confirmation step
+
+**Phase to address:**
+MCP Server phase -- bake safety into tool design from the start, not retrofitted.
 
 ---
 
 ## Technical Debt Patterns
 
-Shortcuts that seem reasonable but create long-term problems.
-
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Skip vCard caching, reconstruct from Contact model | Simpler implementation, no cache directory | Destroys photos, TYPE params, X-properties on every push | Never -- data loss is unacceptable |
-| PUT without If-Match header | Avoids complexity of ETag management | Silent data overwrites on iCloud, violates RFC 6352 | Never |
-| Store sync state in frontmatter only (no external state file) | No new files to manage | Cannot track push-specific state (last_push_etag, pending deletes) without polluting contact files | Acceptable for basic ETag storage, but need external state for push metadata |
-| Skip GET-after-PUT ETag refresh | One fewer HTTP request per push | Stale ETags cause 412 failures on next push, or pull detects false changes | Never -- iCloud normalizes aggressively |
-| Push all contacts regardless of source | Simpler push logic | Pushes LinkedIn imports and manual contacts to iCloud unexpectedly | Never -- only push contacts with `source: "icloud"` or explicitly opted in |
+| `spawn_blocking` for all sync code in MCP | Zero refactoring of existing 4.7K LOC | Thread pool overhead, cannot leverage async I/O benefits | Always -- this codebase should stay sync for CLI/TUI |
+| No file locking for CLI commands | Simpler code, CLI is single-user | Does not catch race conditions in testing | Always -- CLI is single-process, locking is MCP-only concern |
+| Shelling out to Node.js for Playwright | Clean boundary, independent testing | Extra runtime dependency for LinkedIn feature only | Always -- better than embedding playwright-rust |
+| Full contact scan for bulk queries | Simple, no index maintenance | O(n) on every query | Until contacts exceed ~10K (explicitly out of scope) |
+| Storing MCP server state in memory only | No persistence layer needed | State lost on restart | Always -- MCP server is stateless between sessions by design |
 
 ## Integration Gotchas
 
-Common mistakes when connecting to iCloud CardDAV for write operations.
-
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| iCloud PUT create | Using the contact's UUID as the vCard filename | Generate a new UUID for the filename (`{uuid}.vcf`) and set the vCard UID property separately. The URL filename and vCard UID are independent identifiers. |
-| iCloud PUT create | Missing `If-None-Match: *` header | Always include `If-None-Match: *` on creates to prevent overwriting an existing resource at that URL. Server returns 412 if resource already exists. |
-| iCloud PUT update | Using the old ETag from frontmatter | Fetch current ETag via PROPFIND before PUT. Use fresh ETag in `If-Match`. |
-| iCloud DELETE | Deleting without `If-Match` | Include `If-Match: <current-etag>` on DELETE to prevent deleting a contact that was modified since last sync. |
-| iCloud vCard format | Sending vCard 4.0 format | iCloud uses vCard 3.0. Ensure `VERSION:3.0` in all pushed vCards. Key differences: vCard 3.0 requires both N and FN, uses `TYPE=` parameter syntax differently, and does not support all 4.0 properties. |
-| iCloud Content-Type | Using `text/vcard` without charset | Use `Content-Type: text/vcard; charset=utf-8` on all PUT requests. |
-| iCloud URL construction | Constructing PUT URL by appending to addressbook URL | The PUT URL for updates must match the exact `href` returned by PROPFIND. For creates, append `{uuid}.vcf` to the addressbook collection URL. |
-| iCloud required fields | Sending vCard without N property | iCloud rejects vCards missing N (structured name). Always include both FN and N, even if N is just `LastName;FirstName;;;`. |
+| rmcp (MCP SDK) | Using SSE transport for local tool | Use stdio transport -- simpler, more compatible, no HTTP overhead |
+| rmcp tool handlers | Calling `std::fs::read_to_string` directly in async fn | Wrap in `tokio::task::spawn_blocking()` to avoid blocking the async runtime |
+| LinkedIn GDPR export | Automating the full LinkedIn UI navigation | Automate only the CSV import; let user trigger export manually or automate just the settings/data-privacy page |
+| reqwest in MCP context | Using `reqwest::blocking` inside async handler | `spawn_blocking` the entire sync operation; do not mix blocking and async reqwest in same task |
+| Existing `store.rs` from MCP | Assuming store functions are thread-safe | They are not -- add per-file mutex in MCP layer, not in store itself |
+| JSON pipe output | Outputting full contact YAML through pipe | Output contact IDs/paths for pipe efficiency; receiver loads only what it needs |
+| rmcp tool schemas | Hand-writing JSON schemas for tool parameters | Use rmcp `#[tool]` macro to derive schemas from Rust struct definitions |
 
 ## Performance Traps
 
-Patterns that work at small scale but fail with real contact lists.
-
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Individual PUT per contact on first push | First push of 500+ contacts takes 10+ minutes | Batch pushes with delays. There is no multiput in CardDAV, but space requests 200ms apart to avoid rate limits | >100 contacts |
-| PROPFIND Depth:1 to refresh all ETags before push | Works, but fetches ETags for all contacts when maybe only 3 changed | Track dirty contacts locally. Only refresh ETags for contacts that were modified since last sync | >500 contacts |
-| No rate limit handling | iCloud returns 503 after ~50-100 rapid requests, sync fails midway | Implement exponential backoff on 429/503. Start with 1s delay, double on each retry, max 60s. Cap at 5 retries per request | >50 rapid requests |
-| Fetching full vCard on every push for ETag check | Wastes bandwidth fetching vCard bodies when we only need ETags | Use targeted PROPFIND for `getetag` only, not full GET | >100 contacts |
+| Full disk scan per MCP tool call | MCP responses >200ms for simple queries | Cache contact list in memory with file watcher invalidation | >5K contacts or high MCP request rate |
+| Parsing YAML frontmatter for every contact on every request | CPU spike on bulk operations | Load file list first, parse only matching files based on filename filter when possible | >2K contacts with complex queries |
+| Spawning too many blocking tasks from MCP | Thread pool exhaustion under concurrent requests | Limit concurrent write operations via semaphore (e.g., max 4) | >10 concurrent MCP tool calls |
+| LinkedIn automation retry loops | Account gets rate-limited, script loops forever | Exponential backoff with max 3 retries, then fail loudly | Any automated LinkedIn interaction |
+| Pipe chains doing redundant I/O | 3-stage pipe takes 3x as long as single command | Pass file paths through pipe, not full contact data | >500 contacts with multi-stage pipes |
 
 ## Security Mistakes
 
-Domain-specific security issues for CardDAV write operations.
-
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Logging vCard content (including phone/email) at debug level | PII in log files that may be committed or shared | Log contact names and source_ids only. Never log raw vCard content or frontmatter in production |
-| Storing the app-specific password in sync state files | Credential leak via git or file sharing | Already mitigated -- password is in macOS Keychain via `keyring` crate. Ensure no refactoring moves it to config files |
-| No TLS certificate validation on PUT/DELETE | MITM could intercept and modify contact data in transit | reqwest validates TLS by default. Do not add `.danger_accept_invalid_certs(true)` even for testing |
-| Pushing contacts with `status: "archived"` to iCloud | Archived contacts reappear on user's phone | Filter out archived contacts from push. Only push `active` and `dormant` status contacts |
+| MCP server listening on 0.0.0.0 via HTTP transport | Remote code execution -- any network user can call edit/delete tools | Use stdio transport (no network exposure). If HTTP needed, bind to 127.0.0.1 only |
+| LinkedIn credentials stored in plaintext config | Credential theft if repo is public or shared | Use system keyring (same pattern as existing iCloud via `keyring` crate) |
+| No input validation on MCP tool arguments | Path traversal via crafted file names in add/edit tools | Reuse existing `validation::validate_contact()`, reject names with `..`, `/`, or null bytes |
+| Bulk `--set` accepting arbitrary field names | Could overwrite `id`, `source_id`, or `etag`, breaking sync integrity | Whitelist editable fields in bulk mode; reject system/sync fields |
+| MCP tool returning raw file system paths | Leaks local directory structure to AI agent | Return contact names and IDs only; resolve paths internally |
 
 ## UX Pitfalls
 
-Common user experience mistakes when adding push sync.
-
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| Auto-push on every save without opt-in | User edits CRM-only fields (tags, notes), triggering unexpected iCloud writes | Auto-push must be opt-in via config flag. Default to manual `acrm sync push`. |
-| No feedback during push | User thinks app froze during multi-contact push | Show progress: "Pushing 3/47 contacts... [contact name]" |
-| Silent conflict resolution | User does not know CRM overwrote their phone edits | Always print conflicts: "Conflict: Jane Smith was modified on iCloud (ETag changed). CRM version pushed (CRM wins policy)." |
-| Delete without undo | User deletes contact from CRM, push deletes from iCloud, no recovery | Archive instead of delete. Push only propagates actual deletes, not archives. Provide `acrm sync undo-delete` that re-pushes from archive |
-| Pushing all contacts on first push | User with 500 CRM contacts floods iCloud with contacts they did not want synced | First push should require explicit opt-in per contact or per tag. Or only push contacts with `source: "icloud"` by default |
+| Bulk operation with no preview | User archives 200 contacts accidentally | Show count and sample before executing; require `--yes` flag for >10 contacts |
+| MCP tool errors as opaque strings | AI agent cannot recover or explain failure to user | Return structured error with `code`, `message`, and `suggestion` fields |
+| LinkedIn export taking 24 hours with no feedback | User thinks tool is broken | Show status message explaining LinkedIn's processing delay; log when request was submitted |
+| Bulk query syntax unrelated to existing `search` syntax | User must learn two query languages | Reuse filter logic from `search` command, extend with `field=value` syntax |
+| MCP server requiring manual startup | User must remember to start server before AI agent can use it | Document stdio integration for Claude Desktop (just a config entry, no manual start) |
 
 ## "Looks Done But Isn't" Checklist
 
-Things that appear complete but are missing critical pieces.
-
-- [ ] **PUT works:** Often missing If-Match header -- verify 412 response handling works
-- [ ] **DELETE works:** Often missing confirmation prompt -- verify batch delete safety limit
-- [ ] **ETag tracking:** Often missing GET-after-PUT fallback -- verify behavior when PUT response has no ETag header
-- [ ] **Conflict detection:** Often missing "both sides changed" case -- verify behavior when local AND server both modified since last sync
-- [ ] **Selective sync:** Often missing filter persistence -- verify filters are stored in config and survive restarts
-- [ ] **New contact push:** Often missing vCard 3.0 N property -- verify iCloud accepts the generated vCard
-- [ ] **Delete propagation:** Often missing source check -- verify only `source: "icloud"` contacts trigger iCloud deletes
-- [ ] **Auto-push:** Often missing debouncing -- verify rapid saves do not trigger multiple concurrent pushes
-- [ ] **Rate limiting:** Often missing backoff -- verify behavior when iCloud returns 503
+- [ ] **MCP Server:** Tool handlers work in isolation but panic under concurrent calls -- verify with parallel tool invocations
+- [ ] **MCP Server:** Read tools work but write tools silently corrupt -- verify with concurrent edit + log on same contact
+- [ ] **MCP Server:** Server starts but AI client cannot discover tools -- verify tool listing returns correct JSON schema for all parameters
+- [ ] **MCP Server:** Tools work in tests but `reqwest::blocking` code panics in real async context -- verify MCP tool that triggers CardDAV sync completes without panic
+- [ ] **Bulk Operations:** Single bulk command works but pipe chains lose data -- verify `acrm bulk ... | acrm bulk ...` produces correct results
+- [ ] **Bulk Operations:** `--dry-run` shows correct preview but actual execution differs -- verify dry-run and execute produce same change set
+- [ ] **Bulk Operations:** Query syntax handles edge cases -- verify empty string matches, special characters in values, and missing fields
+- [ ] **LinkedIn Import:** CSV import works with fresh export but fails on re-import -- verify dedup handles re-imported contacts (match on LinkedIn profile URL or email, not name)
+- [ ] **LinkedIn Import:** Import works but overwrites manual CRM edits -- verify CRM-wins conflict resolution applies to LinkedIn re-imports
 
 ## Recovery Strategies
 
-When pitfalls occur despite prevention, how to recover.
-
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Data loss from lossy vCard push | HIGH | Restore from git history (`git log -- contacts/name.md`). Re-pull from iCloud to recover server-side data. Cannot recover iCloud-side data destroyed by push unless iCloud has its own backup/undo. |
-| Mass accidental delete on iCloud | HIGH | If caught quickly, contacts may be in iCloud's "Recently Deleted" (recoverable for 30 days). Otherwise, restore from iPhone backup or Time Machine backup of `~/Library/Application Support/AddressBook/`. |
-| Infinite sync loop | LOW | Stop sync. Clear sync state (delete `.sync/` directory). Re-run initial pull to re-establish baseline ETags. |
-| 412 failures blocking all pushes | LOW | Re-pull to refresh all ETags. Then retry push. If persistent, force-push with fresh ETags from PROPFIND. |
-| Stale ETag causing silent overwrite | MEDIUM | Check git history for the overwritten contact. Re-pull from iCloud to get current server state. Manually merge if needed. |
+| reqwest panic in async context | LOW | Wrap offending call in `spawn_blocking`; no data loss, just a code fix |
+| Concurrent write corruption | MEDIUM | Git history preserves all versions; `git diff` to find lost changes; add mutex and replay lost edits |
+| LinkedIn account restricted | HIGH | Wait 24-72 hours for restriction lift; reduce automation frequency; may require manual LinkedIn appeal |
+| Wrong transport (SSE instead of stdio) | LOW | Swap transport type in server setup code; tool handlers remain unchanged |
+| Bulk operation modifies wrong contacts | LOW | `git checkout contacts/` restores all files instantly; add confirmation prompt to prevent recurrence |
+| Playwright-rust dependency bloat | MEDIUM | Remove from Cargo.toml, rewrite as standalone Node.js script, update build/CI process |
+| MCP tool exposes unsafe delete | MEDIUM | Add dry_run and confirm parameters to tool; audit MCP write log for unintended operations |
 
 ## Pitfall-to-Phase Mapping
 
-How roadmap phases should address these pitfalls.
-
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Lossy vCard reconstruction (P1) | Phase 1: Push infrastructure | Verify `.sync/vcards/` cache exists and is populated during pull. Round-trip test: pull contact, push unchanged, verify iCloud vCard is identical. |
-| Stale ETag on push (P2) | Phase 1: Push infrastructure | Unit test: PUT with stale ETag returns 412. Integration test: modify contact on iCloud between pull and push, verify conflict detected. |
-| iCloud rewrites vCard (P3) | Phase 1: Push infrastructure | Integration test: push a contact, check if PUT response has ETag. If not, verify GET-after-PUT retrieves the new ETag. |
-| Accidental mass delete (P4) | Phase 1: Push infrastructure | Test: filter out all contacts, verify no deletes sent. Test: delete 15 contacts, verify safety limit triggers abort. |
-| Infinite sync loop (P5) | Phase 2: Conflict detection | Test: push a contact, immediately pull, verify contact shows as "unchanged." Run 3 consecutive sync cycles and verify no oscillation. |
-| vCard 3.0 format errors (Integration) | Phase 1: Push infrastructure | Test: create contact in CRM, push to iCloud, verify iCloud Contacts app displays it correctly with all fields. |
-| Rate limiting (Performance) | Phase 1: Push infrastructure | Test: push 20+ contacts rapidly, verify backoff kicks in on 503. Verify sync completes despite throttling. |
-| Auto-push without opt-in (UX) | Phase 3: Selective sync + auto-push | Verify auto-push config defaults to `false`. Verify toggling config requires explicit user action. |
+| reqwest::blocking panic (P1) | MCP Server | MCP tool that triggers CardDAV sync completes without panic |
+| Concurrent file corruption (P2) | MCP Server | 10 parallel write tool calls produce correct, non-corrupted results |
+| Deprecated SSE transport (P3) | MCP Server | Server works with Claude Desktop via stdio config in `claude_desktop_config.json` |
+| LinkedIn account restriction (P4) | LinkedIn Automation | Automation includes rate limiting, circuit breaker, and user-facing warnings |
+| Playwright-rust dependency (P5) | LinkedIn Automation | `acrm` binary has no Node.js runtime dependency; LinkedIn script is standalone |
+| Pipe chain performance (P6) | Bulk Operations | Three-stage pipe chain produces same result as equivalent single command, in <2x time |
+| Unsafe MCP write tools (P7) | MCP Server | All write tools support `dry_run`; bulk writes require explicit `confirm` parameter |
+| Bulk without preview | Bulk Operations | Bulk modify >10 contacts requires explicit `--yes` flag |
 
 ## Sources
 
-- [RFC 6352 - CardDAV Specification](https://www.rfc-editor.org/rfc/rfc6352) -- ETag requirements, If-Match semantics, PUT/DELETE behavior (HIGH confidence)
-- [sabre/dav: Building a CardDAV Client](https://sabre.io/dav/building-a-carddav-client/) -- Sync algorithm, vCard preservation warning, GET-after-PUT pattern, UID/URL independence (HIGH confidence)
-- [DAVx5 Technical Documentation](https://manual.davx5.com/technical_information.html) -- If-None-Match for creates, CTag-based change detection (HIGH confidence)
-- [Apple Developer Forums: Rate Limit Exceeded for CardDAV](https://developer.apple.com/forums/thread/722170) -- iCloud rate limiting exists but limits are undocumented (MEDIUM confidence)
-- [The Eclectic Light Company: iCloud Throttling](https://eclecticlight.co/2024/02/22/icloud-does-throttle-data-syncing-after-all/) -- iCloud throttles aggressively, stops responding entirely rather than slowing (MEDIUM confidence)
-- [Apple Developer Forums: FN property empty](https://developer.apple.com/forums/thread/724626) -- iCloud strict vCard 3.0 validation, FN/N required (MEDIUM confidence)
-- [DAVx5 iCloud compatibility page](https://www.davx5.com/tested-with/icloud) -- iCloud DNS/SRV issues, general interoperability notes (MEDIUM confidence)
-- Existing codebase inspection: `src/sync/carddav.rs`, `src/sync/vcard_map.rs`, `src/commands/sync.rs`, `src/sync/dedup.rs` (HIGH confidence)
+- [reqwest::blocking should advertise tokio incompatibility (GitHub #1233)](https://github.com/seanmonstar/reqwest/issues/1233) -- HIGH confidence
+- [Async -> blocking -> async sandwich causes tokio panics (Rust Forum)](https://users.rust-lang.org/t/async-blocking-async-sandwich-causes-tokio-panics/134538) -- HIGH confidence
+- [rmcp -- Official Rust MCP SDK (GitHub)](https://github.com/modelcontextprotocol/rust-sdk) -- HIGH confidence
+- [MCP Transports Specification (2025-11-25)](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports) -- HIGH confidence
+- [Why MCP Deprecated SSE for Streamable HTTP](https://blog.fka.dev/blog/2025-06-06-why-mcp-deprecated-sse-and-go-with-streamable-http/) -- MEDIUM confidence
+- [LinkedIn Automation Safety Guide 2026 (Dux-Soup)](https://www.dux-soup.com/blog/linkedin-automation-safety-guide-how-to-avoid-account-restrictions-in-2026) -- MEDIUM confidence
+- [Playwright Bot Detection Avoidance (BrowserStack)](https://www.browserstack.com/guide/playwright-bot-detection) -- MEDIUM confidence
+- [playwright-rust crate (GitHub)](https://github.com/octaltree/playwright-rust) -- HIGH confidence (crate status verified)
+- [Tokio Shared State Tutorial](https://tokio.rs/tokio/tutorial/shared-state) -- HIGH confidence
+- [How to Build an MCP Server in Rust](https://oneuptime.com/blog/post/2026-01-07-rust-mcp-server/view) -- MEDIUM confidence
+- Existing codebase inspection: `src/store.rs`, `src/sync/carddav.rs`, `src/main.rs`, `Cargo.toml` -- HIGH confidence
 
 ---
-*Pitfalls research for: Adding two-way CardDAV push sync to AgenticCRM v1.1*
-*Researched: 2026-03-07*
+*Pitfalls research for: Adding MCP server, bulk operations, and LinkedIn automation to AgenticCRM v1.2*
+*Researched: 2026-03-08*

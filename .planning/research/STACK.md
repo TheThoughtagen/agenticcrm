@@ -1,242 +1,185 @@
 # Technology Stack
 
-**Project:** AgenticCRM v1.1 - Two-Way iCloud Sync (Push, Conflict Detection, Selective Filtering)
-**Researched:** 2026-03-07
+**Project:** AgenticCRM v1.2 -- MCP Server, Bulk Ops & LinkedIn Automation
+**Researched:** 2026-03-08
 **Overall confidence:** HIGH
 
-## Key Finding: Zero New Cargo Dependencies Required
+## Scope
 
-The existing stack handles everything needed for v1.1. This was confirmed by reading calcard 0.3.2 source code locally and verifying reqwest's HTTP method support against the existing PROPFIND implementation.
+This research covers ONLY new dependencies for v1.2 features. The existing stack (clap 4, serde, serde_yaml, chrono, anyhow, ratatui 0.29, reqwest blocking, quick-xml, calcard, keyring) is validated and unchanged.
 
-## Existing Stack (No Changes to Cargo.toml)
+## Recommended Stack Additions
 
-| Technology | Version | v1.1 Role | Confidence |
-|------------|---------|-----------|------------|
-| reqwest | 0.13.2 (blocking) | PUT/DELETE with If-Match/If-None-Match headers. Already creates custom methods (PROPFIND); PUT/DELETE are simpler. | HIGH - verified in carddav.rs |
-| calcard | 0.3.2 | VCard construction from Contact + serialization via `write_to()` / `to_string()`. Builder pattern confirmed in source. | HIGH - verified in local source |
-| quick-xml | 0.39.2 | Parse error response bodies from PUT/DELETE (same XML parsing as existing PROPFIND responses) | HIGH - already working |
-| uuid | 1 (v4) | Generate source_id/UID for new CRM-created contacts pushed to iCloud | HIGH - already a dep |
-| chrono | 0.4 | Format birthday dates for vCard BDAY property | HIGH - already a dep |
-| url | 2.5.8 | Build PUT/DELETE target URLs: `{addressbook_url}/{source_id}.vcf` | HIGH - already a dep |
-| clap | 4 (derive) | New `sync push` subcommand with --force, --dry-run, --tag, --status flags | HIGH - already a dep |
-| serde/serde_yaml | 1/0.9 | Extended sync config parsing (push_tags, push_statuses, auto_push) | HIGH - already a dep |
-| anyhow | 1 | Error handling for new push/delete operations | HIGH - already a dep |
-| keyring | 3.6.3 | Unchanged - same credential storage | HIGH - already working |
+### MCP Server
 
-## calcard 0.3.2: VCard Construction API (Verified from Source)
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| rmcp | 1.1 | Official Rust MCP SDK -- server framework, tool macros, transport | Official SDK from modelcontextprotocol org. Released 2026-03-04. 22+ releases since March 2025. Supports Streamable HTTP (current spec) and stdio. |
+| tokio | 1 (full) | Async runtime required by rmcp | rmcp is built on tokio -- no alternative. Required for Streamable HTTP transport and async tool handlers |
+| schemars | 1 | JSON Schema generation for MCP tool input definitions | rmcp's `#[tool]` macro uses schemars to auto-generate input schemas for tool parameters |
 
-**Source:** `/Users/pmannion/.cargo/registry/src/.../calcard-0.3.2/src/vcard/builder.rs` and `writer.rs`
-
-calcard provides everything needed to build vCards programmatically and serialize them:
-
-### Construction Pattern
-```rust
-use calcard::vcard::{VCard, VCardEntry, VCardProperty, VCardValue, VCardVersion};
-
-let vcard = VCard {
-    entries: vec![
-        // FN (formatted name) - required by iCloud
-        VCardEntry::new(VCardProperty::Fn)
-            .with_value(VCardValue::Text("Jane Smith".to_string())),
-        // N (structured name) - required by iCloud
-        VCardEntry::new(VCardProperty::N)
-            .with_values(vec![
-                VCardValue::Text("Smith".to_string()),     // Family
-                VCardValue::Text("Jane".to_string()),      // Given
-                VCardValue::Text(String::new()),           // Middle
-                VCardValue::Text(String::new()),           // Prefix
-                VCardValue::Text(String::new()),           // Suffix
-            ]),
-        // UID - must match the .vcf filename
-        VCardEntry::new(VCardProperty::Uid)
-            .with_value(VCardValue::Text("abc-123-def".to_string())),
-        // EMAIL (one VCardEntry per address)
-        VCardEntry::new(VCardProperty::Email)
-            .with_value(VCardValue::Text("jane@example.com".to_string())),
-        // TEL
-        VCardEntry::new(VCardProperty::Tel)
-            .with_value(VCardValue::Text("+1-555-0100".to_string())),
-        // ORG
-        VCardEntry::new(VCardProperty::Org)
-            .with_value(VCardValue::Text("Acme Corp".to_string())),
-        // TITLE (maps from Contact.role)
-        VCardEntry::new(VCardProperty::Title)
-            .with_value(VCardValue::Text("Engineer".to_string())),
-    ],
-};
-```
-
-### Serialization
-```rust
-// Option 1: write_to with explicit version (iCloud uses 3.0)
-let mut output = String::new();
-vcard.write_to(&mut output, VCardVersion::V3_0).unwrap();
-// Produces: BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Jane Smith\r\n...END:VCARD\r\n
-
-// Option 2: to_string() uses detected/default version
-let vcard_text = vcard.to_string();
-```
-
-### Key API Details (from source)
-- `VCard { entries: Vec<VCardEntry> }` -- entries field is public, construct directly
-- `VCard::default()` -- creates empty VCard (Default derive)
-- `VCardEntry::new(VCardProperty) -> Self` -- builder start
-- `.with_value(impl Into<VCardValue>)` -- add single value; `String` auto-converts via `From<String>`
-- `.with_values(Vec<VCardValue>)` -- set multiple values (for N, ADR structured fields)
-- `.with_param(impl Into<VCardParameter>)` -- add TYPE=work, etc.
-- `VCardParameter::typ(VCardType::Work.into())` -- convenience constructors
-- `vcard.write_to(&mut output, VCardVersion::V3_0)` -- serialize to specific version
-- Writer auto-handles: line folding at 75 chars, BEGIN/END/VERSION wrapping, escaping
-
-### Contact-to-VCard Field Mapping
-
-| Contact Field | vCard Property | Mapping Notes |
-|---------------|---------------|---------------|
-| `name` | `FN` | Direct copy |
-| `name` (split) | `N` | Split "First Last" into Family;Given;;; |
-| `email[]` | `EMAIL` (multiple entries) | One VCardEntry per email |
-| `phone[]` | `TEL` (multiple entries) | One VCardEntry per phone |
-| `company` | `ORG` | Skip if empty |
-| `role` | `TITLE` | vCard TITLE maps to our "role" field |
-| `website` | `URL` | Skip if empty |
-| `birthday` | `BDAY` | Format as YYYY-MM-DD text |
-| body notes | `NOTE` | Extract from ## Notes section of body |
-| `source_id` | `UID` | Must match .vcf filename |
-| tags, status, priority, etc. | -- | **NOT serialized** -- CRM-only fields |
-
-## reqwest: PUT/DELETE with Conditional Headers
-
-**Source:** Existing `carddav.rs` already creates custom HTTP methods. PUT and DELETE are standard.
-
-### PUT for Create (new contact)
-```rust
-client.put(vcard_url.as_str())
-    .header("Content-Type", "text/vcard; charset=utf-8")
-    .header("If-None-Match", "*")  // Fail if resource already exists
-    .basic_auth(&apple_id, Some(&app_password))
-    .body(vcard_string)
-    .send()?;
-// Success: 201 Created. Read ETag from response headers.
-```
-
-### PUT for Update (existing contact)
-```rust
-client.put(vcard_url.as_str())
-    .header("Content-Type", "text/vcard; charset=utf-8")
-    .header("If-Match", format!("\"{}\"", stored_etag))  // Conflict detection
-    .basic_auth(&apple_id, Some(&app_password))
-    .body(vcard_string)
-    .send()?;
-// Success: 204 No Content (or 200). Read new ETag from response headers.
-// Conflict: 412 Precondition Failed. Server has newer version.
-```
-
-### DELETE (remove contact)
-```rust
-client.delete(vcard_url.as_str())
-    .header("If-Match", format!("\"{}\"", stored_etag))
-    .basic_auth(&apple_id, Some(&app_password))
-    .send()?;
-// Success: 204 No Content.
-// Already gone: 404 Not Found (handle gracefully, not an error).
-// Conflict: 412 Precondition Failed.
-```
-
-### Response Status Handling
-| Status | Meaning | Action |
-|--------|---------|--------|
-| 200/201 | Created/OK | Read ETag header, update frontmatter |
-| 204 | No Content (update/delete OK) | Read ETag header, update frontmatter |
-| 404 | Not Found (on DELETE) | Treat as success (already gone) |
-| 412 | Precondition Failed | ETag mismatch = conflict. Warn user, force-overwrite if --force |
-| 401 | Unauthorized | Existing error handling pattern |
-
-### ETag Extraction from Response
-```rust
-let new_etag = response.headers()
-    .get("ETag")
-    .and_then(|v| v.to_str().ok())
-    .map(|s| s.trim_matches('"').to_string());
-// If absent (some servers don't return ETag on PUT), do a HEAD/PROPFIND to get it
-```
-
-## Selective Sync Config: Extend Hand-Parser
-
-The existing `sync/config.rs` hand-parses `sync.toml` line by line. For v1.1, add 3 more fields. This is simpler than adding a TOML crate dependency for such minimal config.
-
-### Extended sync.toml format
+**rmcp feature flags:**
 ```toml
-apple_id = "user@icloud.com"
-auto_push = false
-push_tags = ["professional", "family"]
-push_statuses = ["active"]
+rmcp = { version = "1.1", features = [
+    "server",                           # Server-side MCP functionality
+    "macros",                           # #[tool] and #[prompt] derive macros
+    "transport-streamable-http-server", # HTTP transport (current MCP spec)
+    "transport-io",                     # stdio transport for local agent use
+] }
 ```
 
-### Parsing approach
-Extend the existing `parse_apple_id` pattern:
-- `auto_push` -- parse as boolean (`"true"/"false"`)
-- `push_tags` -- parse as comma-separated or bracket-delimited list
-- `push_statuses` -- same as tags
+Axum 0.8 ships as a transitive dependency of rmcp's `transport-streamable-http-server` feature. No need to add it explicitly unless mounting custom routes alongside MCP.
 
-If config grows beyond ~6 fields in future milestones, add the `toml` crate then.
+### Bulk Operations
+
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| (no new deps) | -- | Query parsing and pipeline I/O | Simple `field=value` grammar parsed with existing `regex` crate. JSON pipe I/O uses existing `serde_json`. No query engine needed at <10K contacts |
+
+### LinkedIn Automation
+
+| Technology | Version | Purpose | Why |
+|------------|---------|---------|-----|
+| (no new Rust deps) | -- | Subprocess orchestration | `std::process::Command` spawns a standalone Playwright script. No Rust browser crate needed |
+| Node.js + Playwright | external | Browser automation for LinkedIn CSV export | External runtime dependency. User installs separately. Explicitly experimental feature |
+
+## Critical Architecture Decision: Async vs Blocking
+
+The existing codebase is entirely synchronous using `reqwest::blocking`. The rmcp MCP SDK requires tokio async. These CANNOT coexist on the same thread -- `reqwest::blocking` panics inside a tokio runtime.
+
+**Solution: Separate binary entry point.**
+
+- `acrm add/list/search/edit/log/...` -- synchronous, no tokio, completely unchanged
+- `acrm serve` -- new subcommand with `#[tokio::main]` async runtime
+- `acrm serve --stdio` -- stdio transport variant for local agents
+
+The `serve` command wraps all existing synchronous store/command logic via `tokio::task::spawn_blocking()`. This means:
+- Zero refactoring of existing commands
+- MCP tool handlers call the same `store.rs` and `commands/` functions
+- No async migration of reqwest or any existing code
+
+This is the cleanest integration path. The alternative (migrating the entire codebase to async) would be a massive refactor with zero user benefit for CLI usage.
+
+## Complete Cargo.toml Additions
+
+```toml
+[dependencies]
+# MCP server (NEW for v1.2)
+rmcp = { version = "1.1", features = [
+    "server", "macros",
+    "transport-streamable-http-server",
+    "transport-io",
+] }
+tokio = { version = "1", features = ["full"] }
+schemars = "1"
+
+# All other deps unchanged from v1.1
+```
+
+**Total new direct dependencies:** 3 (rmcp, tokio, schemars)
+
+## MCP Transport Choice: Streamable HTTP (NOT deprecated SSE)
+
+The PROJECT.md mentions "HTTP/SSE" but the MCP specification deprecated the HTTP+SSE transport in version 2025-03-26, replacing it with **Streamable HTTP**. Streamable HTTP is the current standard (spec version 2025-11-25).
+
+Key differences:
+- **Deprecated SSE:** Two endpoints (POST for client-to-server, GET /sse for server-to-client stream). Stateful connection required.
+- **Streamable HTTP:** Single `/mcp` endpoint. POST for all messages. Server MAY use SSE in response body for streaming, but it is optional. Stateless-compatible.
+
+rmcp 1.1 supports Streamable HTTP natively via `transport-streamable-http-server`. It does NOT have a feature flag for the deprecated SSE transport (that lives in the separate `rmcp-actix-web` crate, which we do not need).
+
+**Recommend both transports:**
+- `acrm serve` -- Streamable HTTP on `localhost:3000` (configurable), for network/remote agents
+- `acrm serve --stdio` -- stdio transport, for local agents (Claude Desktop, Cursor, etc.)
+
+## LinkedIn Automation: Subprocess Architecture
+
+**Why NOT use a Rust Playwright crate:**
+
+| Crate | Status | Problem |
+|-------|--------|---------|
+| `playwright` (crates.io) | v0.0.1 | Placeholder, unusable |
+| `playwright-rust` (octaltree) | Functional but limited | Self-describes as "still under development and has limited functions." Spawns Node.js internally anyway |
+| `pw-rs` | Community fork | Same architecture -- Node.js subprocess under the hood |
+
+All Rust Playwright crates spawn Node.js under the hood. There is zero performance or packaging benefit. A standalone JavaScript/TypeScript Playwright script is:
+- Independently testable (`node scripts/linkedin-export.js`)
+- Easier to debug (browser DevTools, Playwright trace viewer)
+- Maintained in a language where Playwright is a first-class citizen
+- Not coupled to Rust compile cycles
+
+**Implementation pattern:**
+```
+acrm linkedin export
+  -> std::process::Command::new("node")
+       .arg("scripts/linkedin-export.js")
+       .spawn()
+  -> Script outputs CSV to known path
+  -> Rust reads CSV, runs existing import logic with dedup
+```
+
+**External dependency:** User must have Node.js 18+ and Playwright installed. Detect at runtime with clear error messages. Acceptable for an explicitly "experimental" feature.
+
+## Bulk Query Syntax: No Parser Crate Needed
+
+The query grammar is intentionally simple:
+```
+field=value           # exact match
+field!=value          # not equal
+field~=pattern        # regex match
+field<date            # date comparison
+field>date            # date comparison
+tag:contains=value    # array contains
+```
+
+This is ~50-80 lines of hand-rolled parsing against known frontmatter field names. The existing `regex` crate handles pattern matching. Adding a parser generator (pest, nom, lalrpop) or SQL parser would be over-engineering for a fixed, small grammar with ~6 operators and ~15 known fields.
+
+## Alternatives Considered
+
+| Category | Recommended | Alternative | Why Not |
+|----------|-------------|-------------|---------|
+| MCP SDK | rmcp 1.1 (official) | rust-mcp-sdk 0.x | rust-mcp-sdk is community-maintained. rmcp is the official modelcontextprotocol org SDK with stronger protocol compliance guarantees and faster spec tracking |
+| MCP transport | Streamable HTTP | Deprecated HTTP+SSE | SSE transport deprecated in MCP spec 2025-03-26. Build on current standard |
+| HTTP framework | axum (via rmcp) | actix-web (via rmcp-actix-web) | rmcp bundles axum natively. actix-web requires a separate adapter crate. No benefit to adding complexity |
+| Async runtime | tokio | async-std / smol | rmcp requires tokio. No choice |
+| Query parsing | Hand-rolled | pest / nom / sqlparser | Grammar is trivial. Parser generators add compile-time and complexity for ~60 lines of code |
+| LinkedIn browser | Node.js Playwright subprocess | playwright-rust crate | Rust crates are immature and spawn Node.js internally anyway. Direct script is simpler and independently testable |
+| LinkedIn browser | Playwright | Puppeteer / Selenium | Playwright has best headless mode, auto-wait, multi-browser. De facto standard for 2026 browser automation |
 
 ## What NOT to Add
 
-| Crate Considered | Why Not |
-|------------------|---------|
-| `toml` | Over-engineering for 4 config fields; hand-parser already works |
-| `vcard_parser` / `ical_vcard` | calcard already handles both parsing AND serialization |
-| `tokio` / async | reqwest blocking works; CLI tool pushes sequentially; existing architecture decision |
-| `sha2` / `md5` | ETags from server are the correct conflict detection per RFC 6352 |
-| `diff` | CRM-wins strategy means no merge; just ETag comparison |
-| `notify` (file watcher) | Auto-push via `--push` flag on commands is simpler than a daemon; defer watcher to later |
-| `base64` | reqwest's `.basic_auth()` handles Base64 encoding internally |
-| `tracing` | Useful but not required for v1.1; existing eprintln pattern sufficient for sync debugging |
+| Temptation | Why Avoid |
+|------------|-----------|
+| Full async migration of existing CLI | Massive refactor with zero user benefit. Only `acrm serve` needs async |
+| Database (SQLite, sled) for bulk queries | Flat-file is the product differentiator. Linear scan of <10K contacts is <50ms |
+| REST/GraphQL API alongside MCP | MCP is the agent protocol. Adding REST splits maintenance for no audience |
+| Embedded V8/Deno for Playwright | Enormous binary size. Node.js is already required for Playwright |
+| reqwest async migration | Breaking change to sync commands. spawn_blocking bridge is simpler |
+| tracing crate | Useful but not blocking. Can add later. eprintln/log patterns sufficient for now |
+| Web UI framework | Out of scope per PROJECT.md constraints |
 
-## Integration Points with Existing Code
+## Dependency Risk Assessment
 
-### Modified: `sync/carddav.rs`
-Add 2 methods to `CardDavClient`:
-- `put_vcard(&self, url: &Url, body: &str, etag: Option<&str>) -> Result<PutResult>`
-- `delete_vcard(&self, url: &Url, etag: &str) -> Result<bool>`
-
-New struct: `PutResult { new_etag: Option<String>, conflict: bool }`
-
-### Modified: `sync/vcard_map.rs`
-Add 1 public function (reverse of existing `map_vcard_to_contact`):
-- `map_contact_to_vcard(contact: &Contact, uid: &str, notes: &str) -> String`
-
-Add 1 helper: `split_name(name: &str) -> (String, String)`
-
-### New: `sync/push.rs`
-Push orchestration: load contacts, filter, compare ETags, determine create/update/delete actions, call client, update frontmatter.
-
-### New: `sync/filter.rs`
-Pure predicate functions: `SyncFilter::matches(contact: &Contact) -> bool` based on tags/status config.
-
-### Modified: `sync/config.rs`
-Add `auto_push`, `push_tags`, `push_statuses` parsing.
-
-### Modified: `commands/sync.rs`
-Add `run_push(force, dry_run, fmt)`. Wire up `acrm sync push` subcommand.
-
-### Modified: `main.rs`
-Add `Push` variant to `SyncAction` enum.
+| Dependency | Risk | Mitigation |
+|------------|------|------------|
+| rmcp 1.1 | MEDIUM -- young SDK (v1.1, org since Mar 2025), API surface may shift | Pin to `1.1.x`. MCP protocol itself is stable. Official SDK has strong incentive for API stability. Worst case: update tool macro annotations |
+| tokio 1 | LOW -- most-used Rust async runtime, stable ABI for years | Standard choice, no risk |
+| schemars 1 | LOW -- mature, widely used for JSON Schema | Stable API |
+| Node.js/Playwright (external) | MEDIUM -- external runtime dep, user must install | Feature is explicitly experimental. Runtime detection with clear errors. Script is standalone |
 
 ## Sources
 
-- calcard 0.3.2 local source: `builder.rs`, `writer.rs`, `mod.rs` -- HIGH confidence, directly inspected
-- [calcard docs.rs - VCard](https://docs.rs/calcard/0.3.2/calcard/vcard/struct.VCard.html) -- API reference
-- [calcard docs.rs - VCardEntry](https://docs.rs/calcard/0.3.2/calcard/vcard/struct.VCardEntry.html) -- Builder pattern
-- [calcard docs.rs - VCardProperty](https://docs.rs/calcard/0.3.2/calcard/vcard/enum.VCardProperty.html) -- 53 property variants
-- [calcard GitHub](https://github.com/stalwartlabs/calcard) -- Repository, write_to + to_string confirmed
-- [RFC 6352 - CardDAV](https://www.rfc-editor.org/rfc/rfc6352) -- PUT/DELETE/If-Match semantics
-- [Google CardDAV docs](https://developers.google.com/people/carddav) -- PUT/DELETE examples confirming ETag patterns
-- [vdirsyncer iCloud issue #1145](https://github.com/pimutils/vdirsyncer/issues/1145) -- iCloud CardDAV write behavior
-- Existing codebase: `Cargo.toml`, `sync/carddav.rs`, `sync/vcard_map.rs`, `sync/config.rs`, `commands/sync.rs` -- HIGH confidence
-- `cargo search calcard` -- confirmed 0.3.2 is latest version
+- [rmcp crate 1.1.0 on crates.io](https://crates.io/crates/rmcp) -- HIGH confidence, verified latest version 2026-03-08
+- [rmcp docs.rs feature flags](https://docs.rs/crate/rmcp/latest) -- HIGH confidence, all features enumerated
+- [modelcontextprotocol/rust-sdk on GitHub](https://github.com/modelcontextprotocol/rust-sdk) -- HIGH confidence, official repository
+- [MCP Transports Specification (2025-03-26)](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports) -- HIGH confidence, official spec documenting SSE deprecation
+- [Why MCP Deprecated SSE](https://blog.fka.dev/blog/2025-06-06-why-mcp-deprecated-sse-and-go-with-streamable-http/) -- MEDIUM confidence, community analysis with protocol rationale
+- [Building Streamable HTTP MCP Server in Rust (Shuttle)](https://www.shuttle.dev/blog/2025/10/29/stream-http-mcp) -- MEDIUM confidence, working tutorial with rmcp + axum
+- [reqwest::blocking docs](https://docs.rs/reqwest/latest/reqwest/blocking/index.html) -- HIGH confidence, documents tokio runtime incompatibility
+- [playwright-rust on GitHub](https://github.com/octaltree/playwright-rust) -- HIGH confidence, verified limited/development status
 
 ---
 
-*Stack research: 2026-03-07 -- v1.1 milestone (two-way sync push)*
+*Stack research: 2026-03-08 -- v1.2 milestone (MCP, Bulk Ops, LinkedIn)*
+*Previous research (v1.1 milestone): 2026-03-07*
 *Previous research (v1.0 milestone): 2026-03-05*
