@@ -518,6 +518,278 @@ pub fn unarchive(root: &Path, name: &str) -> Result<ArchiveResult, OpsError> {
     })
 }
 
+// ── Bulk result structs ─────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct BulkResult {
+    pub matched: usize,
+    pub affected: usize,
+    pub changes: Vec<BulkChange>,
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BulkChange {
+    pub name: String,
+    pub path: String,
+    pub action: String,
+}
+
+// ── Bulk ops functions ──────────────────────────────────────────────────────
+
+/// Query contacts using a parsed Query, returning all matching ContactFiles.
+pub fn query(root: &Path, q: &crate::query::Query) -> Result<Vec<ContactFile>, OpsError> {
+    let mut contacts = store::load_all_contacts(root).map_err(internal)?;
+    contacts.retain(|cf| q.matches(&cf.contact));
+    contacts.sort_by(|a, b| a.contact.name.cmp(&b.contact.name));
+    Ok(contacts)
+}
+
+/// Apply field edits to all matched contacts.
+///
+/// Re-loads each file individually for fresh raw_frontmatter.
+/// If dry_run is true, reports changes without writing.
+pub fn bulk_update(
+    root: &Path,
+    matched: &[ContactFile],
+    sets: &[String],
+    dry_run: bool,
+) -> Result<BulkResult, OpsError> {
+    if sets.is_empty() {
+        return Err(OpsError::ValidationFailed(
+            "No --set arguments provided for bulk update".to_string(),
+        ));
+    }
+
+    let mut changes = Vec::new();
+
+    for cf in matched {
+        // Re-load for fresh raw_frontmatter
+        let mut fresh =
+            store::parse_contact_file(&cf.path).map_err(|e| OpsError::Internal(e.to_string()))?;
+
+        let mut action_parts = Vec::new();
+
+        for set_arg in sets {
+            let (key, value) = set_arg.split_once('=').ok_or_else(|| {
+                OpsError::ValidationFailed(format!(
+                    "Invalid --set format '{set_arg}', expected key=value"
+                ))
+            })?;
+            let key = key.trim();
+            let value = value.trim();
+
+            if ARRAY_FIELDS.contains(&key) {
+                let values: Vec<String> = value
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                fresh.raw_frontmatter =
+                    frontmatter::update_array_field(&fresh.raw_frontmatter, key, &values);
+            } else {
+                let yaml_value = if needs_quoting(value) {
+                    format!("\"{}\"", value.replace('"', "\\\""))
+                } else {
+                    value.to_string()
+                };
+                fresh.raw_frontmatter =
+                    frontmatter::update_field(&fresh.raw_frontmatter, key, &yaml_value);
+            }
+
+            action_parts.push(format!("set {key}={value}"));
+        }
+
+        // Re-parse and validate
+        let updated_contact: Contact =
+            serde_yaml::from_str(&fresh.raw_frontmatter).map_err(|e| {
+                OpsError::Internal(format!("Updated frontmatter produced invalid YAML: {e}"))
+            })?;
+        let errors = validation::validate_contact(&updated_contact);
+        if !errors.is_empty() {
+            let messages: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+            return Err(OpsError::ValidationFailed(messages.join("; ")));
+        }
+
+        fresh.contact = updated_contact;
+
+        if !dry_run {
+            let content = store::serialize_contact_file(&fresh).map_err(internal)?;
+            std::fs::write(&fresh.path, &content)?;
+        }
+
+        changes.push(BulkChange {
+            name: fresh.contact.name.clone(),
+            path: fresh.path.display().to_string(),
+            action: action_parts.join(", "),
+        });
+    }
+
+    Ok(BulkResult {
+        matched: matched.len(),
+        affected: changes.len(),
+        changes,
+        dry_run,
+    })
+}
+
+/// Delete all matched contact files.
+///
+/// If dry_run is true, reports what would be deleted without removing files.
+pub fn bulk_delete(
+    _root: &Path,  // kept for API consistency with other bulk ops
+    matched: &[ContactFile],
+    dry_run: bool,
+) -> Result<BulkResult, OpsError> {
+    let mut changes = Vec::new();
+
+    for cf in matched {
+        if !dry_run {
+            std::fs::remove_file(&cf.path)?;
+        }
+
+        changes.push(BulkChange {
+            name: cf.contact.name.clone(),
+            path: cf.path.display().to_string(),
+            action: "deleted".to_string(),
+        });
+    }
+
+    Ok(BulkResult {
+        matched: matched.len(),
+        affected: changes.len(),
+        changes,
+        dry_run,
+    })
+}
+
+/// Archive all matched contacts (set status=archived, move to archive/).
+///
+/// If dry_run is true, reports what would be archived without moving files.
+pub fn bulk_archive(
+    root: &Path,
+    matched: &[ContactFile],
+    dry_run: bool,
+) -> Result<BulkResult, OpsError> {
+    let archive_dir = root.join("archive");
+    if !dry_run {
+        std::fs::create_dir_all(&archive_dir)?;
+    }
+
+    let mut changes = Vec::new();
+
+    for cf in matched {
+        // Re-load for fresh raw_frontmatter
+        let mut fresh =
+            store::parse_contact_file(&cf.path).map_err(|e| OpsError::Internal(e.to_string()))?;
+
+        fresh.raw_frontmatter =
+            frontmatter::update_field(&fresh.raw_frontmatter, "status", "archived");
+
+        // Re-parse so the Contact struct reflects the status change
+        let updated_contact: Contact =
+            serde_yaml::from_str(&fresh.raw_frontmatter).map_err(|e| {
+                OpsError::Internal(format!("Updated frontmatter produced invalid YAML: {e}"))
+            })?;
+        fresh.contact = updated_contact;
+
+        if !dry_run {
+            let filename = cf
+                .path
+                .file_name()
+                .ok_or_else(|| OpsError::Internal("Contact file has no filename".to_string()))?;
+            let archive_path = archive_dir.join(filename);
+
+            let content = store::serialize_contact_file(&fresh).map_err(internal)?;
+            std::fs::write(&archive_path, &content)?;
+            std::fs::remove_file(&cf.path)?;
+        }
+
+        changes.push(BulkChange {
+            name: cf.contact.name.clone(),
+            path: cf.path.display().to_string(),
+            action: "archived".to_string(),
+        });
+    }
+
+    Ok(BulkResult {
+        matched: matched.len(),
+        affected: changes.len(),
+        changes,
+        dry_run,
+    })
+}
+
+/// Add/remove tags on all matched contacts.
+///
+/// If dry_run is true, reports tag changes without writing.
+pub fn bulk_tag(
+    _root: &Path,  // kept for API consistency with other bulk ops
+    matched: &[ContactFile],
+    add_tags: &[String],
+    remove_tags: &[String],
+    dry_run: bool,
+) -> Result<BulkResult, OpsError> {
+    let mut changes = Vec::new();
+
+    for cf in matched {
+        // Re-load for fresh raw_frontmatter
+        let mut fresh =
+            store::parse_contact_file(&cf.path).map_err(|e| OpsError::Internal(e.to_string()))?;
+
+        let mut current_tags = fresh.contact.tags.clone();
+        let mut action_parts = Vec::new();
+
+        // Add tags (deduplicate)
+        for tag in add_tags {
+            if !current_tags.contains(tag) {
+                current_tags.push(tag.clone());
+                action_parts.push(format!("added tag {tag}"));
+            }
+        }
+
+        // Remove tags
+        for tag in remove_tags {
+            if current_tags.contains(tag) {
+                current_tags.retain(|t| t != tag);
+                action_parts.push(format!("removed tag {tag}"));
+            }
+        }
+
+        if action_parts.is_empty() {
+            continue; // No changes needed for this contact
+        }
+
+        fresh.raw_frontmatter =
+            frontmatter::update_array_field(&fresh.raw_frontmatter, "tags", &current_tags);
+
+        // Re-parse
+        let updated_contact: Contact =
+            serde_yaml::from_str(&fresh.raw_frontmatter).map_err(|e| {
+                OpsError::Internal(format!("Updated frontmatter produced invalid YAML: {e}"))
+            })?;
+        fresh.contact = updated_contact;
+
+        if !dry_run {
+            let content = store::serialize_contact_file(&fresh).map_err(internal)?;
+            std::fs::write(&fresh.path, &content)?;
+        }
+
+        changes.push(BulkChange {
+            name: cf.contact.name.clone(),
+            path: cf.path.display().to_string(),
+            action: action_parts.join(", "),
+        });
+    }
+
+    Ok(BulkResult {
+        matched: matched.len(),
+        affected: changes.len(),
+        changes,
+        dry_run,
+    })
+}
+
 // ── Utility functions ───────────────────────────────────────────────────────
 
 /// Calculate the next follow-up date from a given date and cadence string.
@@ -664,5 +936,349 @@ mod tests {
         assert!(err.contains("daily"));
         assert!(err.contains("weekly"));
         assert!(err.contains("monthly"));
+    }
+}
+
+#[cfg(test)]
+mod bulk_tests {
+    use super::*;
+    use crate::query::Query;
+    use std::fs;
+    use tempfile::TempDir;
+
+    /// Set up a temp CRM root with contacts/ dir, template, and sample contacts.
+    fn setup_bulk_test() -> (TempDir, std::path::PathBuf) {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path().to_path_buf();
+
+        // Create contacts/ and templates/ directories
+        fs::create_dir_all(root.join("contacts")).unwrap();
+        fs::create_dir_all(root.join("templates")).unwrap();
+
+        // Create a minimal template (needed for some ops but not for parse)
+        let template = r#"---
+id: "{{uuid}}"
+name: ""
+aliases: []
+pronouns: ""
+email: []
+phone: []
+address: []
+company: ""
+role: ""
+industry: ""
+linkedin: ""
+twitter: ""
+facebook: ""
+instagram: ""
+github: ""
+website: ""
+birthday:
+interests: []
+family: []
+how_we_met: ""
+met_date:
+introduced_by: ""
+relationship: acquaintance
+tags: []
+status: active
+follow_up_cadence: ""
+last_contacted:
+next_follow_up:
+priority: medium
+source: manual
+source_id: ""
+etag: ""
+---
+
+## Notes
+
+
+## Interaction Log
+"#;
+        fs::write(root.join("templates/contact.md"), template).unwrap();
+
+        // Create two sample contacts
+        let contact1 = r#"---
+id: "aaa-111"
+name: "Alice Test"
+aliases: []
+pronouns: ""
+email: []
+phone: []
+address: []
+company: "Acme"
+role: ""
+industry: ""
+linkedin: ""
+twitter: ""
+facebook: ""
+instagram: ""
+github: ""
+website: ""
+birthday:
+interests: []
+family: []
+how_we_met: ""
+met_date:
+introduced_by: ""
+relationship: friend
+tags:
+  - "rust"
+  - "engineer"
+status: dormant
+follow_up_cadence: ""
+last_contacted:
+next_follow_up:
+priority: medium
+source: manual
+source_id: ""
+etag: ""
+---
+
+## Notes
+
+## Interaction Log
+"#;
+
+        let contact2 = r#"---
+id: "bbb-222"
+name: "Bob Test"
+aliases: []
+pronouns: ""
+email: []
+phone: []
+address: []
+company: "Globex"
+role: ""
+industry: ""
+linkedin: ""
+twitter: ""
+facebook: ""
+instagram: ""
+github: ""
+website: ""
+birthday:
+interests: []
+family: []
+how_we_met: ""
+met_date:
+introduced_by: ""
+relationship: colleague
+tags:
+  - "python"
+status: active
+follow_up_cadence: ""
+last_contacted:
+next_follow_up:
+priority: low
+source: manual
+source_id: ""
+etag: ""
+---
+
+## Notes
+
+## Interaction Log
+"#;
+
+        fs::write(root.join("contacts/alice-test.md"), contact1).unwrap();
+        fs::write(root.join("contacts/bob-test.md"), contact2).unwrap();
+
+        (tmp, root)
+    }
+
+    #[test]
+    fn bulk_query_filters_by_status() {
+        let (_tmp, root) = setup_bulk_test();
+        let q = Query::parse("status=dormant").unwrap();
+        let results = query(&root, &q).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].contact.name, "Alice Test");
+    }
+
+    #[test]
+    fn bulk_query_returns_sorted_by_name() {
+        let (_tmp, root) = setup_bulk_test();
+        let q = Query::parse("source=manual").unwrap();
+        let results = query(&root, &q).unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].contact.name, "Alice Test");
+        assert_eq!(results[1].contact.name, "Bob Test");
+    }
+
+    #[test]
+    fn bulk_update_applies_changes() {
+        let (_tmp, root) = setup_bulk_test();
+        let q = Query::parse("status=dormant").unwrap();
+        let matched = query(&root, &q).unwrap();
+
+        let result =
+            bulk_update(&root, &matched, &["status=active".to_string()], false).unwrap();
+        assert_eq!(result.matched, 1);
+        assert_eq!(result.affected, 1);
+        assert!(!result.dry_run);
+        assert!(result.changes[0].action.contains("set status=active"));
+
+        // Verify file was actually changed
+        let content = fs::read_to_string(root.join("contacts/alice-test.md")).unwrap();
+        assert!(content.contains("status: active"));
+    }
+
+    #[test]
+    fn bulk_update_dry_run_does_not_write() {
+        let (_tmp, root) = setup_bulk_test();
+        let q = Query::parse("status=dormant").unwrap();
+        let matched = query(&root, &q).unwrap();
+
+        let result =
+            bulk_update(&root, &matched, &["status=active".to_string()], true).unwrap();
+        assert_eq!(result.affected, 1);
+        assert!(result.dry_run);
+
+        // File should NOT have changed
+        let content = fs::read_to_string(root.join("contacts/alice-test.md")).unwrap();
+        assert!(content.contains("status: dormant"));
+    }
+
+    #[test]
+    fn bulk_delete_removes_files() {
+        let (_tmp, root) = setup_bulk_test();
+        let q = Query::parse("status=dormant").unwrap();
+        let matched = query(&root, &q).unwrap();
+
+        let result = bulk_delete(&root, &matched, false).unwrap();
+        assert_eq!(result.affected, 1);
+        assert!(!root.join("contacts/alice-test.md").exists());
+        // Bob should still exist
+        assert!(root.join("contacts/bob-test.md").exists());
+    }
+
+    #[test]
+    fn bulk_delete_dry_run_preserves_files() {
+        let (_tmp, root) = setup_bulk_test();
+        let q = Query::parse("status=dormant").unwrap();
+        let matched = query(&root, &q).unwrap();
+
+        let result = bulk_delete(&root, &matched, true).unwrap();
+        assert_eq!(result.affected, 1);
+        assert!(result.dry_run);
+        // File should still exist
+        assert!(root.join("contacts/alice-test.md").exists());
+    }
+
+    #[test]
+    fn bulk_archive_moves_and_updates_status() {
+        let (_tmp, root) = setup_bulk_test();
+        let q = Query::parse("status=dormant").unwrap();
+        let matched = query(&root, &q).unwrap();
+
+        let result = bulk_archive(&root, &matched, false).unwrap();
+        assert_eq!(result.affected, 1);
+
+        // Original should be gone
+        assert!(!root.join("contacts/alice-test.md").exists());
+        // Archive file should exist
+        let archive_path = root.join("archive/alice-test.md");
+        assert!(archive_path.exists());
+        // Status should be archived
+        let content = fs::read_to_string(&archive_path).unwrap();
+        assert!(content.contains("status: archived"));
+    }
+
+    #[test]
+    fn bulk_archive_dry_run_preserves_files() {
+        let (_tmp, root) = setup_bulk_test();
+        let q = Query::parse("status=dormant").unwrap();
+        let matched = query(&root, &q).unwrap();
+
+        let result = bulk_archive(&root, &matched, true).unwrap();
+        assert_eq!(result.affected, 1);
+        assert!(result.dry_run);
+        // Original should still be there
+        assert!(root.join("contacts/alice-test.md").exists());
+        // Archive should not exist
+        assert!(!root.join("archive/alice-test.md").exists());
+    }
+
+    #[test]
+    fn bulk_tag_adds_tags() {
+        let (_tmp, root) = setup_bulk_test();
+        let q = Query::parse("status=dormant").unwrap();
+        let matched = query(&root, &q).unwrap();
+
+        let result = bulk_tag(
+            &root,
+            &matched,
+            &["new-tag".to_string()],
+            &[],
+            false,
+        )
+        .unwrap();
+        assert_eq!(result.affected, 1);
+        assert!(result.changes[0].action.contains("added tag new-tag"));
+
+        // Verify file was changed
+        let content = fs::read_to_string(root.join("contacts/alice-test.md")).unwrap();
+        assert!(content.contains("new-tag"));
+    }
+
+    #[test]
+    fn bulk_tag_removes_tags() {
+        let (_tmp, root) = setup_bulk_test();
+        let q = Query::parse("status=dormant").unwrap();
+        let matched = query(&root, &q).unwrap();
+
+        let result = bulk_tag(
+            &root,
+            &matched,
+            &[],
+            &["rust".to_string()],
+            false,
+        )
+        .unwrap();
+        assert_eq!(result.affected, 1);
+        assert!(result.changes[0].action.contains("removed tag rust"));
+    }
+
+    #[test]
+    fn bulk_tag_dry_run_does_not_write() {
+        let (_tmp, root) = setup_bulk_test();
+        let q = Query::parse("status=dormant").unwrap();
+        let matched = query(&root, &q).unwrap();
+
+        let result = bulk_tag(
+            &root,
+            &matched,
+            &["new-tag".to_string()],
+            &[],
+            true,
+        )
+        .unwrap();
+        assert_eq!(result.affected, 1);
+        assert!(result.dry_run);
+
+        // File should NOT have changed
+        let content = fs::read_to_string(root.join("contacts/alice-test.md")).unwrap();
+        assert!(!content.contains("new-tag"));
+    }
+
+    #[test]
+    fn bulk_tag_deduplicates_existing_tags() {
+        let (_tmp, root) = setup_bulk_test();
+        let q = Query::parse("status=dormant").unwrap();
+        let matched = query(&root, &q).unwrap();
+
+        // Try adding "rust" which already exists
+        let result = bulk_tag(
+            &root,
+            &matched,
+            &["rust".to_string()],
+            &[],
+            false,
+        )
+        .unwrap();
+        // Should have 0 affected since no changes were needed
+        assert_eq!(result.affected, 0);
     }
 }
