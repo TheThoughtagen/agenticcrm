@@ -1,10 +1,15 @@
+pub mod resources;
 pub mod tools;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use rmcp::handler::server::router::tool::ToolRouter;
-use rmcp::model::{ServerCapabilities, ServerInfo};
+use rmcp::model::{
+    ListResourcesResult, PaginatedRequestParams, ReadResourceRequestParams,
+    ReadResourceResult, ServerCapabilities, ServerInfo,
+};
+use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData, ServerHandler, ServiceExt, tool_handler};
 use tokio::sync::Mutex;
 
@@ -36,11 +41,29 @@ impl ServerHandler for CrmServer {
         ServerInfo::new(
             ServerCapabilities::builder()
                 .enable_tools()
+                .enable_resources()
                 .build(),
         )
         .with_instructions(
-            "AgenticCRM - a personal CRM. Search, view, and list contacts due for follow-up.",
+            "AgenticCRM - a personal CRM. Search, view, add, edit, log interactions, \
+             delete, archive contacts, and sync with iCloud. Browse contacts as resources.",
         )
+    }
+
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, ErrorData> {
+        self.mcp_list_resources().await
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResult, ErrorData> {
+        self.mcp_read_resource(&request).await
     }
 }
 
