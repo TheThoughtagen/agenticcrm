@@ -107,6 +107,8 @@ pub fn draw_log_modal(frame: &mut Frame, modal: &mut LogModalState, contact_name
         Paragraph::new(Line::from(vec![
             Span::styled("[hjkl/w/b/e/gg/G]", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(" Move  "),
+            Span::styled("[^u/^d]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Page  "),
             Span::styled("[i/a/o]", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(" Insert  "),
             Span::styled("[x/dd/yy/p/u]", Style::default().add_modifier(Modifier::BOLD)),

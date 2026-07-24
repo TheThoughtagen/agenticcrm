@@ -41,6 +41,12 @@ pub enum VimMode {
     Normal,
 }
 
+/// Lines moved by `Ctrl+u`/`Ctrl+d` in the Summary textarea's vim-lite Normal
+/// mode. The modal doesn't know its own rendered viewport height at the state
+/// layer (that's only known at draw time), so this is a fixed approximation
+/// of "half a page" rather than computed from the actual visible area.
+const HALF_PAGE_LINES: usize = 10;
+
 pub struct LogModalState {
     pub contact_idx: usize,
     pub interaction_type: String,
@@ -176,6 +182,16 @@ impl LogModalState {
             }
             KeyCode::Char('P') => {
                 self.summary.paste();
+            }
+            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                for _ in 0..HALF_PAGE_LINES {
+                    self.summary.move_cursor(CursorMove::Up);
+                }
+            }
+            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                for _ in 0..HALF_PAGE_LINES {
+                    self.summary.move_cursor(CursorMove::Down);
+                }
             }
             KeyCode::Char('u') => {
                 self.summary.undo();
