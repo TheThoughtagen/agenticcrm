@@ -383,8 +383,49 @@ impl EditContactState {
 pub enum SortMode {
     /// Whatever order `store::load_all_contacts` returns (file order).
     Default,
+    /// Alphabetical by name (case-insensitive).
+    Name,
+    /// Alphabetical by company (case-insensitive); contacts with no company
+    /// sort last.
+    Company,
+    /// High, then Medium, then Low; contacts with no priority sort last.
+    Priority,
+    /// Active, then Dormant, then Lost Touch, then Archived; contacts with no
+    /// status sort last.
+    Status,
+    /// By `Relationship`'s declaration order (Friend, Colleague, Client, ...);
+    /// contacts with no relationship sort last.
+    Relationship,
     /// Most recently contacted first; contacts never logged sort last.
     LastContacted,
+}
+
+impl SortMode {
+    /// The order `t` cycles through.
+    fn next(self) -> Self {
+        match self {
+            SortMode::Default => SortMode::Name,
+            SortMode::Name => SortMode::Company,
+            SortMode::Company => SortMode::Priority,
+            SortMode::Priority => SortMode::Status,
+            SortMode::Status => SortMode::Relationship,
+            SortMode::Relationship => SortMode::LastContacted,
+            SortMode::LastContacted => SortMode::Default,
+        }
+    }
+
+    /// Short label shown in the contact list's column header / title.
+    pub fn label(self) -> Option<&'static str> {
+        match self {
+            SortMode::Default => None,
+            SortMode::Name => Some("Name"),
+            SortMode::Company => Some("Company"),
+            SortMode::Priority => Some("Pri"),
+            SortMode::Status => Some("Status"),
+            SortMode::Relationship => Some("Relationship"),
+            SortMode::LastContacted => Some("Last Contacted"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -426,7 +467,7 @@ pub enum Message {
     CycleStatusFilter,
     CyclePriorityFilter,
     CycleRelationshipFilter,
-    ToggleSortMode,
+    CycleSortMode,
     CycleContactStatus,
     CycleContactPriority,
     CycleContactRelationship,
@@ -782,11 +823,8 @@ impl App {
                     (self.relationship_filter_index + 1) % RELATIONSHIP_OPTIONS.len();
                 self.filter_contacts();
             }
-            Message::ToggleSortMode => {
-                self.sort_mode = match self.sort_mode {
-                    SortMode::Default => SortMode::LastContacted,
-                    SortMode::LastContacted => SortMode::Default,
-                };
+            Message::CycleSortMode => {
+                self.sort_mode = self.sort_mode.next();
                 self.filter_contacts();
             }
             Message::CycleContactStatus => {
@@ -1032,13 +1070,45 @@ impl App {
             .map(|(i, _)| i)
             .collect();
 
-        if self.sort_mode == SortMode::LastContacted {
-            let contacts = &self.contacts;
-            self.filtered.sort_by(|&a, &b| {
+        let contacts = &self.contacts;
+        match self.sort_mode {
+            SortMode::Default => {}
+            SortMode::Name => self.filtered.sort_by(|&a, &b| {
+                contacts[a]
+                    .contact
+                    .name
+                    .to_lowercase()
+                    .cmp(&contacts[b].contact.name.to_lowercase())
+            }),
+            SortMode::Company => self.filtered.sort_by(|&a, &b| {
+                // Empty company sorts last regardless of case-insensitive
+                // ordering, so uncategorized contacts don't clutter the top.
+                let ca = &contacts[a].contact.company;
+                let cb = &contacts[b].contact.company;
+                match (ca.is_empty(), cb.is_empty()) {
+                    (true, true) => std::cmp::Ordering::Equal,
+                    (true, false) => std::cmp::Ordering::Greater,
+                    (false, true) => std::cmp::Ordering::Less,
+                    (false, false) => ca.to_lowercase().cmp(&cb.to_lowercase()),
+                }
+            }),
+            SortMode::Priority => self.filtered.sort_by(|&a, &b| {
+                // None (no priority) sorts last, not first, unlike the
+                // default Option<T>::None-sorts-first Ord behavior.
+                sort_key(contacts[a].contact.priority).cmp(&sort_key(contacts[b].contact.priority))
+            }),
+            SortMode::Status => self.filtered.sort_by(|&a, &b| {
+                sort_key(contacts[a].contact.status).cmp(&sort_key(contacts[b].contact.status))
+            }),
+            SortMode::Relationship => self.filtered.sort_by(|&a, &b| {
+                sort_key(contacts[a].contact.relationship)
+                    .cmp(&sort_key(contacts[b].contact.relationship))
+            }),
+            SortMode::LastContacted => self.filtered.sort_by(|&a, &b| {
                 let da = contacts[a].contact.last_contacted;
                 let db = contacts[b].contact.last_contacted;
                 db.cmp(&da)
-            });
+            }),
         }
 
         // Restore the same contact's selection if it still matches; only fall
@@ -1051,6 +1121,13 @@ impl App {
             self.table_state.select(Some(restored.unwrap_or(0)));
         }
     }
+}
+
+/// Sort key that puts "no value set" last instead of first — the derived
+/// `Ord` on `Option<T>` sorts `None` before `Some(_)`, which is backwards for
+/// a contact list (uncategorized contacts shouldn't crowd the top).
+fn sort_key<T: Ord>(value: Option<T>) -> (bool, Option<T>) {
+    (value.is_none(), value)
 }
 
 // ── Status/Priority/Relationship cycling + wire-value helpers ──────────────

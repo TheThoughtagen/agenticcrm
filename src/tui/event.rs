@@ -134,7 +134,7 @@ pub fn handle_key(app: &App, key: KeyEvent) -> Option<Message> {
                 KeyCode::Char('s') => Some(Message::CycleStatusFilter),
                 KeyCode::Char('p') => Some(Message::CyclePriorityFilter),
                 KeyCode::Char('r') => Some(Message::CycleRelationshipFilter),
-                KeyCode::Char('t') => Some(Message::ToggleSortMode),
+                KeyCode::Char('t') => Some(Message::CycleSortMode),
                 KeyCode::Char('x') => Some(Message::StartDeleteConfirm),
                 _ => None,
             },

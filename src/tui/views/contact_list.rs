@@ -4,7 +4,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
 
-use crate::tui::app::{App, InputMode, SortMode, PRIORITY_OPTIONS, RELATIONSHIP_OPTIONS, STATUS_OPTIONS};
+use crate::tui::app::{App, InputMode, PRIORITY_OPTIONS, RELATIONSHIP_OPTIONS, STATUS_OPTIONS};
 use crate::tui::widgets::search_bar::draw_search_bar;
 use crate::tui::widgets::status_badge::{
     format_priority, format_relationship, format_status, priority_style, relationship_style,
@@ -81,18 +81,21 @@ pub fn draw_contact_list(frame: &mut Frame, app: &mut App) {
         })
         .collect();
 
-    let last_contacted_header = if app.sort_mode == SortMode::LastContacted {
-        "Last Contacted ▼"
-    } else {
-        "Last Contacted"
+    let sorted_column = app.sort_mode.label();
+    let column_header = |base: &str| -> String {
+        if sorted_column == Some(base) {
+            format!("{} \u{25bc}", base)
+        } else {
+            base.to_string()
+        }
     };
     let header = Row::new(vec![
-        Cell::from("Pri"),
-        Cell::from("Name"),
-        Cell::from("Company"),
-        Cell::from("Status"),
-        Cell::from("Relationship"),
-        Cell::from(last_contacted_header),
+        Cell::from(column_header("Pri")),
+        Cell::from(column_header("Name")),
+        Cell::from(column_header("Company")),
+        Cell::from(column_header("Status")),
+        Cell::from(column_header("Relationship")),
+        Cell::from(column_header("Last Contacted")),
     ])
     .style(Style::default().add_modifier(Modifier::BOLD))
     .bottom_margin(1);
