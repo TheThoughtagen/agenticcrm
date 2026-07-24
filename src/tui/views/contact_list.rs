@@ -4,10 +4,11 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
 
-use crate::tui::app::{App, InputMode};
+use crate::tui::app::{App, InputMode, SortMode, PRIORITY_OPTIONS, RELATIONSHIP_OPTIONS, STATUS_OPTIONS};
 use crate::tui::widgets::search_bar::draw_search_bar;
 use crate::tui::widgets::status_badge::{
-    format_priority, format_status, priority_style, status_style,
+    format_priority, format_relationship, format_status, priority_style, relationship_style,
+    status_style,
 };
 
 pub fn draw_contact_list(frame: &mut Frame, app: &mut App) {
@@ -60,6 +61,9 @@ pub fn draw_contact_list(frame: &mut Frame, app: &mut App) {
             let status_cell =
                 Cell::from(format_status(&c.status)).style(status_style(&c.status));
 
+            let relationship_cell = Cell::from(format_relationship(&c.relationship))
+                .style(relationship_style(&c.relationship));
+
             let last_contacted_cell = Cell::from(
                 c.last_contacted
                     .map(|d| d.format("%Y-%m-%d").to_string())
@@ -71,22 +75,29 @@ pub fn draw_contact_list(frame: &mut Frame, app: &mut App) {
                 name_cell,
                 company_cell,
                 status_cell,
+                relationship_cell,
                 last_contacted_cell,
             ])
         })
         .collect();
 
+    let last_contacted_header = if app.sort_mode == SortMode::LastContacted {
+        "Last Contacted ▼"
+    } else {
+        "Last Contacted"
+    };
     let header = Row::new(vec![
         Cell::from("Pri"),
         Cell::from("Name"),
         Cell::from("Company"),
         Cell::from("Status"),
-        Cell::from("Last Contacted"),
+        Cell::from("Relationship"),
+        Cell::from(last_contacted_header),
     ])
     .style(Style::default().add_modifier(Modifier::BOLD))
     .bottom_margin(1);
 
-    let title = if show_search {
+    let mut title = if show_search {
         format!(
             " Contacts ({}/{}) ",
             app.filtered.len(),
@@ -95,15 +106,32 @@ pub fn draw_contact_list(frame: &mut Frame, app: &mut App) {
     } else {
         format!(" Contacts ({}) ", app.filtered.len())
     };
+    // Active quick-filter badges, so it's obvious why the list is short.
+    if app.status_filter_index != 0 {
+        title.push_str(&format!("[Status: {}] ", STATUS_OPTIONS[app.status_filter_index]));
+    }
+    if app.priority_filter_index != 0 {
+        title.push_str(&format!(
+            "[Priority: {}] ",
+            PRIORITY_OPTIONS[app.priority_filter_index]
+        ));
+    }
+    if app.relationship_filter_index != 0 {
+        title.push_str(&format!(
+            "[Relationship: {}] ",
+            RELATIONSHIP_OPTIONS[app.relationship_filter_index]
+        ));
+    }
 
     let table = Table::new(
         rows,
         [
             Constraint::Percentage(5),
+            Constraint::Percentage(20),
+            Constraint::Percentage(18),
+            Constraint::Percentage(13),
+            Constraint::Percentage(14),
             Constraint::Percentage(30),
-            Constraint::Percentage(25),
-            Constraint::Percentage(15),
-            Constraint::Percentage(25),
         ],
     )
     .header(header)
@@ -125,15 +153,23 @@ pub fn draw_contact_list(frame: &mut Frame, app: &mut App) {
     } else {
         Paragraph::new(Line::from(vec![
             Span::styled("[j/k]", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(" Navigate  "),
+            Span::raw(" Nav  "),
             Span::styled("[Enter]", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(" Details  "),
             Span::styled("[/]", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(" Search  "),
+            Span::styled("[s/p/r]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Filter  "),
+            Span::styled("[t]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Sort  "),
             Span::styled("[d]", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(" Dashboard  "),
+            Span::raw(" Dash  "),
             Span::styled("[l]", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(" Log  "),
+            Span::styled("[n]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" New  "),
+            Span::styled("[x]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Delete  "),
             Span::styled("[q]", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(" Quit"),
         ]))

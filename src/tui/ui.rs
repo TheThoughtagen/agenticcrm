@@ -16,9 +16,26 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     }
 
     // Overlay log modal if active
-    if let Some(ref modal) = app.log_modal {
-        let contact_name = &app.contacts[modal.contact_idx].contact.name;
-        widgets::log_modal::draw_log_modal(frame, modal, contact_name);
+    if let Some(ref mut modal) = app.log_modal {
+        let contact_name = app.contacts[modal.contact_idx].contact.name.clone();
+        widgets::log_modal::draw_log_modal(frame, modal, &contact_name);
+    }
+
+    // Overlay create-contact modal if active
+    if let Some(ref modal) = app.create_contact_modal {
+        widgets::create_contact_modal::draw_create_contact_modal(frame, modal);
+    }
+
+    // Overlay edit-contact modal if active
+    if let Some(ref modal) = app.edit_contact_modal {
+        let contact_name = app.contacts[modal.contact_idx].contact.name.clone();
+        widgets::edit_contact_modal::draw_edit_contact_modal(frame, modal, &contact_name);
+    }
+
+    // Overlay delete-confirmation modal if active
+    if let Some(idx) = app.delete_confirm {
+        let contact_name = app.contacts[idx].contact.name.clone();
+        widgets::confirm_delete_modal::draw_confirm_delete_modal(frame, &contact_name);
     }
 
     // Show status message if present

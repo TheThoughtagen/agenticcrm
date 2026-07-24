@@ -107,6 +107,20 @@ pub struct ArchiveResult {
 fn find_contact(contacts: Vec<ContactFile>, name: &str) -> Result<ContactFile, OpsError> {
     let name_lower = name.to_lowercase();
 
+    // An exact (case-insensitive) name match always wins, even if the name
+    // also happens to be a substring of some other contact's name (e.g.
+    // "Dad" is a literal substring of "Mudadi") — callers that already know
+    // the precise name (like the TUI, which resolves a contact by table
+    // selection before ever calling into ops::contact) shouldn't hit a
+    // spurious ambiguity error over an unrelated coincidental match.
+    if let Some(pos) = contacts
+        .iter()
+        .position(|cf| cf.contact.name.to_lowercase() == name_lower)
+    {
+        let mut contacts = contacts;
+        return Ok(contacts.remove(pos));
+    }
+
     let mut matches: Vec<_> = contacts
         .into_iter()
         .filter(|cf| cf.contact.name.to_lowercase().contains(&name_lower))
