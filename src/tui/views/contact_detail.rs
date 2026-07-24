@@ -39,6 +39,18 @@ pub fn draw_contact_detail(frame: &mut Frame, app: &mut App, contact_idx: usize)
         Span::raw(" Back  "),
         Span::styled("[l]", Style::default().add_modifier(Modifier::BOLD)),
         Span::raw(" Log  "),
+        Span::styled("[/]", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(" Search  "),
+        Span::styled("[s]", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(" Status  "),
+        Span::styled("[p]", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(" Priority  "),
+        Span::styled("[r]", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(" Relationship  "),
+        Span::styled("[e]", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(" Edit  "),
+        Span::styled("[x]", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(" Delete  "),
         Span::styled("[q]", Style::default().add_modifier(Modifier::BOLD)),
         Span::raw(" Quit"),
     ]));
@@ -268,10 +280,22 @@ fn draw_detail_pane(
         lines.push(Line::from(""));
     }
 
-    // Section: Interaction Log (body)
-    if !cf.body.is_empty() {
-        lines.push(Line::from(Span::styled("-- Interaction Log --", bold)));
-        for body_line in cf.body.lines() {
+    // Sections: Notes and Interaction Log, parsed out of the raw body so the
+    // body's own `## Notes` / `## Interaction Log` markdown headers aren't
+    // shown redundantly next to this pane's own styled section headers.
+    let (notes_text, log_text) = split_body_sections(&cf.body);
+    if !notes_text.is_empty() {
+        lines.push(Line::from(Span::styled("-- Notes --", bold)));
+        for body_line in notes_text.lines() {
+            lines.push(Line::from(body_line.to_string()));
+        }
+        lines.push(Line::from(""));
+    }
+    lines.push(Line::from(Span::styled("-- Interaction Log --", bold)));
+    if log_text.is_empty() {
+        lines.push(Line::from("(no interactions logged yet)"));
+    } else {
+        for body_line in log_text.lines() {
             lines.push(Line::from(body_line.to_string()));
         }
     }
@@ -282,6 +306,29 @@ fn draw_detail_pane(
         .wrap(Wrap { trim: false });
 
     frame.render_widget(detail, area);
+}
+
+/// Split a contact's raw markdown body into (notes, interaction log) text,
+/// stripping the `## Notes` / `## Interaction Log` headers themselves — those
+/// headers are what `ops::contact::add`/`log_interaction` always write, so
+/// this always finds them on a normally-created contact. Falls back to
+/// treating the whole body as the interaction log if the headers are missing
+/// (e.g. a hand-edited or externally-imported contact file).
+fn split_body_sections(body: &str) -> (String, String) {
+    const NOTES_HEADER: &str = "## Notes";
+    const LOG_HEADER: &str = "## Interaction Log";
+
+    let notes_start = body.find(NOTES_HEADER);
+    let log_start = body.find(LOG_HEADER);
+
+    match (notes_start, log_start) {
+        (Some(n), Some(l)) if l > n => {
+            let notes = body[n + NOTES_HEADER.len()..l].trim().to_string();
+            let log = body[l + LOG_HEADER.len()..].trim().to_string();
+            (notes, log)
+        }
+        _ => (String::new(), body.trim().to_string()),
+    }
 }
 
 fn format_relationship(rel: &Relationship) -> &'static str {

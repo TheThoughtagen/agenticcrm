@@ -4,11 +4,16 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
-use crate::tui::app::{LogField, LogModalState};
+use crate::tui::app::{LogField, LogModalState, VimMode};
 
 /// Draw a centered modal overlay for logging interactions.
-pub fn draw_log_modal(frame: &mut Frame, modal: &LogModalState, contact_name: &str) {
-    let area = centered_rect(60, 40, frame.area());
+///
+/// Takes `modal: &mut` because the Summary field's underlying `TextArea` needs its
+/// block/style set immediately before each render (the standard tui-textarea
+/// integration pattern) — this is a rendering-time style refresh, not a state
+/// mutation that affects behavior.
+pub fn draw_log_modal(frame: &mut Frame, modal: &mut LogModalState, contact_name: &str) {
+    let area = centered_rect(70, 60, frame.area());
 
     // Clear the area behind the modal
     frame.render_widget(Clear, area);
@@ -22,7 +27,7 @@ pub fn draw_log_modal(frame: &mut Frame, modal: &LogModalState, contact_name: &s
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3), // Type field
-            Constraint::Length(3), // Summary field
+            Constraint::Min(6),    // Summary field (multi-line)
             Constraint::Length(1), // Help line
         ])
         .split(inner);
@@ -49,33 +54,78 @@ pub fn draw_log_modal(frame: &mut Frame, modal: &LogModalState, contact_name: &s
     );
     frame.render_widget(type_paragraph, chunks[0]);
 
-    // Summary field
+    // Summary field: a real multi-line, cursor-navigable textarea with vim-lite
+    // Normal/Insert modes (see LogModalState::handle_summary_key).
     let summary_active = modal.active_field == LogField::Summary;
     let summary_border_style = if summary_active {
         Style::default().fg(Color::Yellow)
     } else {
         Style::default()
     };
-
-    let cursor = if summary_active { "_" } else { "" };
-    let summary_text = format!("{}{}", modal.summary, cursor);
-    let summary_paragraph = Paragraph::new(summary_text).block(
+    let mode_label = match modal.summary_vim_mode {
+        VimMode::Insert => "INSERT",
+        VimMode::Normal => "NORMAL",
+    };
+    let summary_title = if summary_active {
+        format!(" Summary [{}] ", mode_label)
+    } else {
+        " Summary ".to_string()
+    };
+    modal.summary.set_block(
         Block::default()
             .borders(Borders::ALL)
             .border_style(summary_border_style)
-            .title(" Summary "),
+            .title(summary_title),
     );
-    frame.render_widget(summary_paragraph, chunks[1]);
+    // Cursor line highlight only makes sense while this field is actually focused.
+    if summary_active {
+        modal
+            .summary
+            .set_cursor_line_style(Style::default().add_modifier(Modifier::UNDERLINED));
+        modal.summary.set_cursor_style(Style::default().bg(
+            if modal.summary_vim_mode == VimMode::Insert {
+                Color::Yellow
+            } else {
+                Color::Cyan
+            },
+        ));
+    } else {
+        modal.summary.set_cursor_line_style(Style::default());
+        modal.summary.set_cursor_style(Style::default());
+    }
+    frame.render_widget(&modal.summary, chunks[1]);
 
     // Help line
-    let help = Paragraph::new(Line::from(vec![
-        Span::styled("[Tab]", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw(" Switch field  "),
-        Span::styled("[Enter]", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw(" Submit  "),
-        Span::styled("[Esc]", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw(" Cancel"),
-    ]));
+    let help = if summary_active && modal.summary_vim_mode == VimMode::Insert {
+        Paragraph::new(Line::from(vec![
+            Span::styled("[Tab]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Switch field  "),
+            Span::styled("[Esc]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Normal mode"),
+        ]))
+    } else if summary_active {
+        Paragraph::new(Line::from(vec![
+            Span::styled("[hjkl/w/b/e/gg/G]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Move  "),
+            Span::styled("[^u/^d]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Page  "),
+            Span::styled("[i/a/o]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Insert  "),
+            Span::styled("[x/dd/yy/p/u]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Edit  "),
+            Span::styled("[ZZ]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Submit"),
+        ]))
+    } else {
+        Paragraph::new(Line::from(vec![
+            Span::styled("[Tab]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Switch field  "),
+            Span::styled("[Enter]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Submit  "),
+            Span::styled("[Esc]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Cancel"),
+        ]))
+    };
     frame.render_widget(help, chunks[2]);
 }
 
