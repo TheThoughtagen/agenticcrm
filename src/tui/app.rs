@@ -1022,6 +1022,22 @@ impl App {
                 if let Some(row) = self.filtered.iter().position(|&i| i == new_idx) {
                     self.table_state.select(Some(row));
                 }
+                return Ok(());
+            }
+        }
+
+        // No id was given, or it no longer matches any contact: if the
+        // detail screen was showing one, its index may now be stale (or
+        // outright out of bounds) since `load_all_contacts`'s unsorted
+        // `WalkDir` gives no positional stability across a reload --
+        // and `contact_detail::draw_contact_detail` indexes `app.contacts`
+        // with that index directly, unchecked, so a stale index there
+        // would panic rather than just misbehave. Every current call site
+        // passes a resolvable id when the detail screen is open, so this
+        // is a belt-and-suspenders guard against a future one that doesn't.
+        if let Screen::ContactDetail(idx) = self.screen {
+            if idx >= self.contacts.len() {
+                self.screen = Screen::ContactList;
             }
         }
 
@@ -1432,10 +1448,9 @@ mod list_nav_tests {
 mod reload_contacts_tests {
     use super::*;
 
-    /// Builds an isolated CRM root (own contacts/ + templates/) with three
-    /// contacts, and an `App` pointed at it with the detail screen open on
-    /// the second one.
-    fn setup(tmp: &std::path::Path) -> App {
+    /// Sets up an isolated CRM root (own contacts/ + templates/) on disk, so
+    /// `ops::contact` calls in these tests never touch the real vault.
+    fn scaffold(tmp: &std::path::Path) {
         std::fs::create_dir_all(tmp.join("contacts")).unwrap();
         std::fs::create_dir_all(tmp.join("templates")).unwrap();
         std::fs::copy(
@@ -1443,28 +1458,19 @@ mod reload_contacts_tests {
             tmp.join("templates/contact.md"),
         )
         .unwrap();
+    }
 
-        for name in ["Alice Anderson", "Bob Baker", "Carol Chen"] {
-            ops::contact::add(tmp, name).unwrap();
-        }
-
-        let contacts = store::load_all_contacts(tmp).unwrap();
+    /// An `App` over already-loaded `contacts`, with every other field at a
+    /// neutral default -- callers override `screen`/`sort_mode`/selection.
+    fn bare_app(tmp: &std::path::Path, contacts: Vec<ContactFile>) -> App {
         let filtered: Vec<usize> = (0..contacts.len()).collect();
-        let bob_idx = contacts
-            .iter()
-            .position(|cf| cf.contact.name == "Bob Baker")
-            .unwrap();
-
-        let mut table_state = TableState::default();
-        table_state.select(Some(bob_idx));
-
         App {
             contacts,
             filtered,
-            screen: Screen::ContactDetail(bob_idx),
+            screen: Screen::ContactList,
             input_mode: InputMode::Normal,
             search_query: String::new(),
-            table_state,
+            table_state: TableState::default(),
             dashboard_state: TableState::default(),
             log_modal: None,
             create_contact_modal: None,
@@ -1478,6 +1484,27 @@ mod reload_contacts_tests {
             relationship_filter_index: 0,
             sort_mode: SortMode::Default,
         }
+    }
+
+    /// Builds an isolated CRM root with three contacts, and an `App` pointed
+    /// at it with the detail screen open on the second one.
+    fn setup(tmp: &std::path::Path) -> App {
+        scaffold(tmp);
+
+        for name in ["Alice Anderson", "Bob Baker", "Carol Chen"] {
+            ops::contact::add(tmp, name).unwrap();
+        }
+
+        let contacts = store::load_all_contacts(tmp).unwrap();
+        let bob_idx = contacts
+            .iter()
+            .position(|cf| cf.contact.name == "Bob Baker")
+            .unwrap();
+
+        let mut app = bare_app(tmp, contacts);
+        app.screen = Screen::ContactDetail(bob_idx);
+        app.table_state.select(Some(bob_idx));
+        app
     }
 
     /// After editing a contact and reloading, both the detail screen and the
@@ -1523,13 +1550,7 @@ mod reload_contacts_tests {
     /// Four contacts, sorted by priority, for the sort-interaction tests
     /// below (delete/edit while a non-default `SortMode` is active).
     fn setup_sorted_by_priority(tmp: &std::path::Path) -> App {
-        std::fs::create_dir_all(tmp.join("contacts")).unwrap();
-        std::fs::create_dir_all(tmp.join("templates")).unwrap();
-        std::fs::copy(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/templates/contact.md"),
-            tmp.join("templates/contact.md"),
-        )
-        .unwrap();
+        scaffold(tmp);
 
         for (name, priority) in [
             ("Priority Alpha", "high"),
@@ -1542,28 +1563,8 @@ mod reload_contacts_tests {
         }
 
         let contacts = store::load_all_contacts(tmp).unwrap();
-        let filtered: Vec<usize> = (0..contacts.len()).collect();
-
-        let mut app = App {
-            contacts,
-            filtered,
-            screen: Screen::ContactList,
-            input_mode: InputMode::Normal,
-            search_query: String::new(),
-            table_state: TableState::default(),
-            dashboard_state: TableState::default(),
-            log_modal: None,
-            create_contact_modal: None,
-            edit_contact_modal: None,
-            delete_confirm: None,
-            status_message: None,
-            running: true,
-            crm_root: tmp.to_path_buf(),
-            status_filter_index: 0,
-            priority_filter_index: 0,
-            relationship_filter_index: 0,
-            sort_mode: SortMode::Priority,
-        };
+        let mut app = bare_app(tmp, contacts);
+        app.sort_mode = SortMode::Priority;
         app.filter_contacts(); // apply the priority sort to `filtered`
         app
     }
@@ -1660,6 +1661,31 @@ mod reload_contacts_tests {
         assert!(
             selected_row <= 1,
             "Charlie should now sort among the High-priority contacts (row 0 or 1), got row {selected_row}"
+        );
+    }
+
+    /// `reload_contacts(None)` while `Screen::ContactDetail` points at an
+    /// index that's now out of bounds must fall back to the list rather than
+    /// leave a dangling index -- `contact_detail::draw_contact_detail`
+    /// indexes `app.contacts` with it directly, unchecked, so a stale
+    /// out-of-bounds index would panic on the next render.
+    #[test]
+    fn reload_with_no_keep_id_falls_back_to_list_when_detail_index_out_of_bounds() {
+        let tmp = tempfile::tempdir().unwrap();
+        scaffold(tmp.path());
+        ops::contact::add(tmp.path(), "Solo Contact").unwrap();
+
+        let contacts = store::load_all_contacts(tmp.path()).unwrap();
+        let mut app = bare_app(tmp.path(), contacts);
+        // Point the detail screen past the end of the (soon-to-be-empty) list.
+        app.screen = Screen::ContactDetail(5);
+
+        app.reload_contacts(None).unwrap();
+
+        assert_eq!(
+            app.screen,
+            Screen::ContactList,
+            "an out-of-bounds detail index must fall back to the list, not panic on next render"
         );
     }
 }
