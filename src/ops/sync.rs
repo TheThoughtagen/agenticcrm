@@ -334,6 +334,10 @@ fn create_new_contact(
     fm = frontmatter::update_field(&fm, "source", "icloud");
     fm = frontmatter::update_field(&fm, "source_id", &format!("\"{}\"", uid));
     fm = frontmatter::update_field(&fm, "etag", &format!("\"{}\"", etag));
+    // iCloud imports default to low priority (vs. medium for manually `add`ed
+    // contacts) -- most of an address book is unfiltered, not deliberately
+    // curated relationships.
+    fm = frontmatter::update_field(&fm, "priority", "low");
 
     if !mapped.contact.website.is_empty() {
         fm = frontmatter::update_field(

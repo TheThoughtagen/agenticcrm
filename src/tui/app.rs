@@ -47,6 +47,10 @@ pub enum VimMode {
 /// of "half a page" rather than computed from the actual visible area.
 const HALF_PAGE_LINES: usize = 10;
 
+/// Rows moved by `Ctrl+u`/`Ctrl+d` in the contact list, for the same reason
+/// (and with the same fixed approximation) as `HALF_PAGE_LINES` above.
+const LIST_PAGE_ROWS: usize = 10;
+
 pub struct LogModalState {
     pub contact_idx: usize,
     pub interaction_type: String,
@@ -235,15 +239,19 @@ impl LogModalState {
 /// contact-list quick filters (where index 0 means "show all"). Values after
 /// index 0 are the exact serde wire values `ops::contact::edit`'s `key=value`
 /// sets expect, so they can be passed straight through.
-pub const RELATIONSHIP_OPTIONS: [&str; 9] = [
+pub const RELATIONSHIP_OPTIONS: [&str; 13] = [
     "(unset)",
     "friend",
     "colleague",
+    "former_colleague",
     "client",
     "mentor",
     "mentee",
     "acquaintance",
     "family",
+    "neighbor",
+    "family_friend",
+    "network",
     "other",
 ];
 pub const STATUS_OPTIONS: [&str; 5] = ["(unset)", "active", "dormant", "lost-touch", "archived"];
@@ -433,6 +441,10 @@ pub enum Message {
     Quit,
     SelectNext,
     SelectPrev,
+    PageUp,
+    PageDown,
+    GoToTop,
+    GoToBottom,
     Enter,
     Back,
     StartSearch,
@@ -575,6 +587,41 @@ impl App {
                     None => 0,
                 };
                 self.table_state.select(Some(i));
+            }
+            Message::PageDown => {
+                if self.filtered.is_empty() {
+                    return;
+                }
+                let i = self
+                    .table_state
+                    .selected()
+                    .unwrap_or(0)
+                    .saturating_add(LIST_PAGE_ROWS)
+                    .min(self.filtered.len() - 1);
+                self.table_state.select(Some(i));
+            }
+            Message::PageUp => {
+                if self.filtered.is_empty() {
+                    return;
+                }
+                let i = self
+                    .table_state
+                    .selected()
+                    .unwrap_or(0)
+                    .saturating_sub(LIST_PAGE_ROWS);
+                self.table_state.select(Some(i));
+            }
+            Message::GoToTop => {
+                if self.filtered.is_empty() {
+                    return;
+                }
+                self.table_state.select(Some(0));
+            }
+            Message::GoToBottom => {
+                if self.filtered.is_empty() {
+                    return;
+                }
+                self.table_state.select(Some(self.filtered.len() - 1));
             }
             Message::Enter => {
                 if self.screen == Screen::ContactList {
@@ -866,14 +913,36 @@ impl App {
             Message::ConfirmDeleteYes => {
                 if let Some(idx) = self.delete_confirm {
                     let name = self.contacts[idx].contact.name.clone();
-                    match self.perform_delete(&name) {
+
+                    // Pick whichever contact should end up selected afterward: the
+                    // next row in the *current* filtered/sorted view, or the
+                    // previous one if this was the last row. Resolving this now
+                    // (by id, not position) is what keeps the post-delete
+                    // selection landing on a sensible neighbor instead of
+                    // whatever contact happens to occupy the deleted contact's
+                    // old numeric index once the list is reloaded and re-sorted.
+                    let next_selected_id = self
+                        .filtered
+                        .iter()
+                        .position(|&i| i == idx)
+                        .and_then(|row| {
+                            self.filtered
+                                .get(row + 1)
+                                .or_else(|| row.checked_sub(1).and_then(|r| self.filtered.get(r)))
+                        })
+                        .map(|&i| self.contacts[i].contact.id.clone());
+
+                    // Leave the detail pane before deleting: there's nothing left
+                    // to show for the contact just deleted, and doing this first
+                    // (rather than after) keeps reload_contacts() from trying to
+                    // re-point the detail screen at the neighbor above instead.
+                    if self.screen == Screen::ContactDetail(idx) {
+                        self.screen = Screen::ContactList;
+                    }
+
+                    match self.perform_delete(&name, next_selected_id.as_deref()) {
                         Ok(()) => {
                             self.status_message = Some(format!("Deleted {}", name));
-                            // The contact just vanished from self.contacts; if we were
-                            // looking at its detail pane, there's nothing left to show.
-                            if self.screen == Screen::ContactDetail(idx) {
-                                self.screen = Screen::ContactList;
-                            }
                         }
                         Err(e) => {
                             self.status_message = Some(format!("Error: {}", e));
@@ -933,6 +1002,48 @@ impl App {
         }
     }
 
+    /// Reload contacts from disk after a mutation, then re-select the same
+    /// contact by its stable `id` rather than its position in the reloaded
+    /// list. `store::load_all_contacts` walks the contacts directory via
+    /// `WalkDir` with no sort, so its order is not guaranteed stable across
+    /// calls -- a raw index captured before a reload can silently point at a
+    /// different contact afterward. Also re-points `Screen::ContactDetail`
+    /// at the same contact's new index, so editing-then-saving in the detail
+    /// pane doesn't leave you looking at (or next editing) the wrong person.
+    fn reload_contacts(&mut self, keep_contact_id: Option<&str>) -> anyhow::Result<()> {
+        self.contacts = store::load_all_contacts(&self.crm_root)?;
+        self.filter_contacts();
+
+        if let Some(id) = keep_contact_id {
+            if let Some(new_idx) = self.contacts.iter().position(|cf| cf.contact.id == id) {
+                if let Screen::ContactDetail(_) = self.screen {
+                    self.screen = Screen::ContactDetail(new_idx);
+                }
+                if let Some(row) = self.filtered.iter().position(|&i| i == new_idx) {
+                    self.table_state.select(Some(row));
+                }
+                return Ok(());
+            }
+        }
+
+        // No id was given, or it no longer matches any contact: if the
+        // detail screen was showing one, its index may now be stale (or
+        // outright out of bounds) since `load_all_contacts`'s unsorted
+        // `WalkDir` gives no positional stability across a reload --
+        // and `contact_detail::draw_contact_detail` indexes `app.contacts`
+        // with that index directly, unchecked, so a stale index there
+        // would panic rather than just misbehave. Every current call site
+        // passes a resolvable id when the detail screen is open, so this
+        // is a belt-and-suspenders guard against a future one that doesn't.
+        if let Screen::ContactDetail(idx) = self.screen {
+            if idx >= self.contacts.len() {
+                self.screen = Screen::ContactList;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Log an interaction without printing to stdout (TUI-safe).
     /// Delegates to ops::contact::log_interaction for all file manipulation.
     fn submit_log(
@@ -941,15 +1052,13 @@ impl App {
         summary: &str,
         contact_idx: usize,
     ) -> anyhow::Result<()> {
+        let id = self.contacts[contact_idx].contact.id.clone();
         let name = &self.contacts[contact_idx].contact.name;
 
         ops::contact::log_interaction(&self.crm_root, name, interaction_type, summary, None)
             .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        // Reload contacts to pick up changes
-        let contacts = store::load_all_contacts(&self.crm_root)?;
-        self.contacts = contacts;
-        self.filter_contacts();
+        self.reload_contacts(Some(&id))?;
 
         Ok(())
     }
@@ -965,9 +1074,7 @@ impl App {
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
         }
 
-        let contacts = store::load_all_contacts(&self.crm_root)?;
-        self.contacts = contacts;
-        self.filter_contacts();
+        self.reload_contacts(None)?;
 
         Ok(())
     }
@@ -976,12 +1083,11 @@ impl App {
     /// index into `self.contacts`), reload, and return its name. Used by the
     /// Edit Contact modal (Company/Email/Phone/Birthday).
     fn apply_edit_sets(&mut self, contact_idx: usize, sets: &[String]) -> anyhow::Result<String> {
+        let id = self.contacts[contact_idx].contact.id.clone();
         let name = self.contacts[contact_idx].contact.name.clone();
         ops::contact::edit(&self.crm_root, &name, sets).map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        let contacts = store::load_all_contacts(&self.crm_root)?;
-        self.contacts = contacts;
-        self.filter_contacts();
+        self.reload_contacts(Some(&id))?;
 
         Ok(name)
     }
@@ -990,17 +1096,19 @@ impl App {
     /// `self.contacts`) and reload. Used by the Contact Detail pane's quick
     /// status/priority/relationship cycle keys.
     fn apply_field_edit(&mut self, contact_idx: usize, field: &str, value: &str) {
+        let id = self.contacts[contact_idx].contact.id.clone();
         let name = self.contacts[contact_idx].contact.name.clone();
         let set = format!("{field}={value}");
-        match ops::contact::edit(&self.crm_root, &name, &[set])
-            .map_err(|e| anyhow::anyhow!("{}", e))
-            .and_then(|_| Ok(store::load_all_contacts(&self.crm_root)?))
+        match ops::contact::edit(&self.crm_root, &name, &[set]).map_err(|e| anyhow::anyhow!("{}", e))
         {
-            Ok(contacts) => {
-                self.contacts = contacts;
-                self.filter_contacts();
-                self.status_message = Some(format!("{} -> {}", field, value));
-            }
+            Ok(_) => match self.reload_contacts(Some(&id)) {
+                Ok(()) => {
+                    self.status_message = Some(format!("{} -> {}", field, value));
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Error: {}", e));
+                }
+            },
             Err(e) => {
                 self.status_message = Some(format!("Error: {}", e));
             }
@@ -1010,13 +1118,19 @@ impl App {
     /// Delete a contact by name (TUI-safe: no interactive stdin prompt, unlike
     /// the CLI's `acrm delete`). Confirmation already happened via the
     /// ConfirmDelete modal before this is called.
-    fn perform_delete(&mut self, name: &str) -> anyhow::Result<()> {
+    fn perform_delete(
+        &mut self,
+        name: &str,
+        keep_contact_id: Option<&str>,
+    ) -> anyhow::Result<()> {
         ops::contact::confirm_delete(&self.crm_root, name)
             .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        let contacts = store::load_all_contacts(&self.crm_root)?;
-        self.contacts = contacts;
-        self.filter_contacts();
+        // keep_contact_id is the neighbor picked before the delete (see
+        // ConfirmDeleteYes), not the deleted contact itself -- that one's
+        // gone, so if the caller passes None, filter_contacts()'s own
+        // fallback selection (nearest remaining row by stale index) applies.
+        self.reload_contacts(keep_contact_id)?;
 
         Ok(())
     }
@@ -1194,12 +1308,16 @@ fn next_relationship(current: Option<Relationship>) -> Relationship {
     match current {
         None | Some(Relationship::Other) => Relationship::Friend,
         Some(Relationship::Friend) => Relationship::Colleague,
-        Some(Relationship::Colleague) => Relationship::Client,
+        Some(Relationship::Colleague) => Relationship::FormerColleague,
+        Some(Relationship::FormerColleague) => Relationship::Client,
         Some(Relationship::Client) => Relationship::Mentor,
         Some(Relationship::Mentor) => Relationship::Mentee,
         Some(Relationship::Mentee) => Relationship::Acquaintance,
         Some(Relationship::Acquaintance) => Relationship::Family,
-        Some(Relationship::Family) => Relationship::Other,
+        Some(Relationship::Family) => Relationship::Neighbor,
+        Some(Relationship::Neighbor) => Relationship::FamilyFriend,
+        Some(Relationship::FamilyFriend) => Relationship::Network,
+        Some(Relationship::Network) => Relationship::Other,
     }
 }
 
@@ -1207,11 +1325,15 @@ fn relationship_wire_value(r: Relationship) -> &'static str {
     match r {
         Relationship::Friend => "friend",
         Relationship::Colleague => "colleague",
+        Relationship::FormerColleague => "former_colleague",
         Relationship::Client => "client",
         Relationship::Mentor => "mentor",
         Relationship::Mentee => "mentee",
         Relationship::Acquaintance => "acquaintance",
         Relationship::Family => "family",
+        Relationship::Neighbor => "neighbor",
+        Relationship::FamilyFriend => "family_friend",
+        Relationship::Network => "network",
         Relationship::Other => "other",
     }
 }
@@ -1220,12 +1342,350 @@ fn relationship_from_wire(value: &str) -> Option<Relationship> {
     match value {
         "friend" => Some(Relationship::Friend),
         "colleague" => Some(Relationship::Colleague),
+        "former_colleague" => Some(Relationship::FormerColleague),
         "client" => Some(Relationship::Client),
         "mentor" => Some(Relationship::Mentor),
         "mentee" => Some(Relationship::Mentee),
         "acquaintance" => Some(Relationship::Acquaintance),
         "family" => Some(Relationship::Family),
+        "neighbor" => Some(Relationship::Neighbor),
+        "family_friend" => Some(Relationship::FamilyFriend),
+        "network" => Some(Relationship::Network),
         "other" => Some(Relationship::Other),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod list_nav_tests {
+    use super::*;
+
+    /// A bare `App` with `n` synthetic rows and nothing on disk -- page/top/
+    /// bottom navigation only touches `filtered`/`table_state`, not contact
+    /// content, so no real contact files are needed here.
+    fn app_with_rows(n: usize, selected: usize) -> App {
+        let filtered: Vec<usize> = (0..n).collect();
+        let mut table_state = TableState::default();
+        table_state.select(Some(selected));
+
+        App {
+            contacts: Vec::new(),
+            filtered,
+            screen: Screen::ContactList,
+            input_mode: InputMode::Normal,
+            search_query: String::new(),
+            table_state,
+            dashboard_state: TableState::default(),
+            log_modal: None,
+            create_contact_modal: None,
+            edit_contact_modal: None,
+            delete_confirm: None,
+            status_message: None,
+            running: true,
+            crm_root: PathBuf::new(),
+            status_filter_index: 0,
+            priority_filter_index: 0,
+            relationship_filter_index: 0,
+            sort_mode: SortMode::Default,
+        }
+    }
+
+    #[test]
+    fn page_down_moves_by_page_and_clamps_to_last_row() {
+        let mut app = app_with_rows(15, 0);
+        app.update(Message::PageDown);
+        assert_eq!(app.table_state.selected(), Some(LIST_PAGE_ROWS));
+
+        app.update(Message::PageDown);
+        assert_eq!(
+            app.table_state.selected(),
+            Some(14),
+            "a second page-down should clamp to the last row, not overshoot"
+        );
+    }
+
+    #[test]
+    fn page_up_moves_by_page_and_clamps_to_first_row() {
+        let mut app = app_with_rows(15, 14);
+        app.update(Message::PageUp);
+        assert_eq!(app.table_state.selected(), Some(14 - LIST_PAGE_ROWS));
+
+        app.update(Message::PageUp);
+        assert_eq!(
+            app.table_state.selected(),
+            Some(0),
+            "a second page-up should clamp to the first row, not underflow"
+        );
+    }
+
+    #[test]
+    fn go_to_top_and_bottom() {
+        let mut app = app_with_rows(15, 7);
+        app.update(Message::GoToTop);
+        assert_eq!(app.table_state.selected(), Some(0));
+
+        app.update(Message::GoToBottom);
+        assert_eq!(app.table_state.selected(), Some(14));
+    }
+
+    #[test]
+    fn nav_on_empty_list_is_a_no_op() {
+        let mut app = app_with_rows(0, 0);
+        app.table_state.select(None);
+        for msg in [
+            Message::PageDown,
+            Message::PageUp,
+            Message::GoToTop,
+            Message::GoToBottom,
+        ] {
+            app.update(msg);
+            assert_eq!(app.table_state.selected(), None);
+        }
+    }
+}
+
+#[cfg(test)]
+mod reload_contacts_tests {
+    use super::*;
+
+    /// Sets up an isolated CRM root (own contacts/ + templates/) on disk, so
+    /// `ops::contact` calls in these tests never touch the real vault.
+    fn scaffold(tmp: &std::path::Path) {
+        std::fs::create_dir_all(tmp.join("contacts")).unwrap();
+        std::fs::create_dir_all(tmp.join("templates")).unwrap();
+        std::fs::copy(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/templates/contact.md"),
+            tmp.join("templates/contact.md"),
+        )
+        .unwrap();
+    }
+
+    /// An `App` over already-loaded `contacts`, with every other field at a
+    /// neutral default -- callers override `screen`/`sort_mode`/selection.
+    fn bare_app(tmp: &std::path::Path, contacts: Vec<ContactFile>) -> App {
+        let filtered: Vec<usize> = (0..contacts.len()).collect();
+        App {
+            contacts,
+            filtered,
+            screen: Screen::ContactList,
+            input_mode: InputMode::Normal,
+            search_query: String::new(),
+            table_state: TableState::default(),
+            dashboard_state: TableState::default(),
+            log_modal: None,
+            create_contact_modal: None,
+            edit_contact_modal: None,
+            delete_confirm: None,
+            status_message: None,
+            running: true,
+            crm_root: tmp.to_path_buf(),
+            status_filter_index: 0,
+            priority_filter_index: 0,
+            relationship_filter_index: 0,
+            sort_mode: SortMode::Default,
+        }
+    }
+
+    /// Builds an isolated CRM root with three contacts, and an `App` pointed
+    /// at it with the detail screen open on the second one.
+    fn setup(tmp: &std::path::Path) -> App {
+        scaffold(tmp);
+
+        for name in ["Alice Anderson", "Bob Baker", "Carol Chen"] {
+            ops::contact::add(tmp, name).unwrap();
+        }
+
+        let contacts = store::load_all_contacts(tmp).unwrap();
+        let bob_idx = contacts
+            .iter()
+            .position(|cf| cf.contact.name == "Bob Baker")
+            .unwrap();
+
+        let mut app = bare_app(tmp, contacts);
+        app.screen = Screen::ContactDetail(bob_idx);
+        app.table_state.select(Some(bob_idx));
+        app
+    }
+
+    /// After editing a contact and reloading, both the detail screen and the
+    /// list selection must still point at that same contact by identity --
+    /// not by the position it happened to occupy before the reload, since
+    /// `load_all_contacts` (`WalkDir`, unsorted) offers no ordering guarantee
+    /// across calls.
+    #[test]
+    fn edit_keeps_same_contact_selected_after_reload() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut app = setup(tmp.path());
+
+        let bob_idx_before = match app.screen {
+            Screen::ContactDetail(i) => i,
+            _ => panic!("expected ContactDetail"),
+        };
+        let bob_id = app.contacts[bob_idx_before].contact.id.clone();
+
+        app.apply_field_edit(bob_idx_before, "priority", "high");
+
+        let bob_idx_after = match app.screen {
+            Screen::ContactDetail(i) => i,
+            _ => panic!("expected ContactDetail after edit"),
+        };
+        assert_eq!(
+            app.contacts[bob_idx_after].contact.id, bob_id,
+            "detail screen must still point at Bob after the reload, regardless of his new position"
+        );
+        assert_eq!(app.contacts[bob_idx_after].contact.name, "Bob Baker");
+        assert_eq!(
+            app.contacts[bob_idx_after].contact.priority,
+            Some(Priority::High)
+        );
+
+        let selected_row = app.table_state.selected().unwrap();
+        let selected_contacts_idx = app.filtered[selected_row];
+        assert_eq!(
+            app.contacts[selected_contacts_idx].contact.id, bob_id,
+            "list selection must still highlight Bob after the reload"
+        );
+    }
+
+    /// Four contacts, sorted by priority, for the sort-interaction tests
+    /// below (delete/edit while a non-default `SortMode` is active).
+    fn setup_sorted_by_priority(tmp: &std::path::Path) -> App {
+        scaffold(tmp);
+
+        for (name, priority) in [
+            ("Priority Alpha", "high"),
+            ("Priority Bravo", "medium"),
+            ("Priority Charlie", "low"),
+            ("Priority Delta", "medium"),
+        ] {
+            ops::contact::add(tmp, name).unwrap();
+            ops::contact::edit(tmp, name, &[format!("priority={priority}")]).unwrap();
+        }
+
+        let contacts = store::load_all_contacts(tmp).unwrap();
+        let mut app = bare_app(tmp, contacts);
+        app.sort_mode = SortMode::Priority;
+        app.filter_contacts(); // apply the priority sort to `filtered`
+        app
+    }
+
+    /// Deleting a row while sorted must select the contact that was its
+    /// *sorted-view* neighbor, not an arbitrary contact that happens to land
+    /// on the deleted row's old numeric index after `load_all_contacts`
+    /// reloads (via unsorted `WalkDir`) and `filter_contacts` re-sorts.
+    #[test]
+    fn delete_under_active_sort_selects_sorted_neighbor() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut app = setup_sorted_by_priority(tmp.path());
+
+        // Target a row with a next neighbor in the sorted view (not the last row).
+        let target_row = 1;
+        let target_contacts_idx = app.filtered[target_row];
+        let expected_neighbor_id = app.contacts[app.filtered[target_row + 1]].contact.id.clone();
+        let deleted_name = app.contacts[target_contacts_idx].contact.name.clone();
+
+        app.table_state.select(Some(target_row));
+        app.update(Message::StartDeleteConfirm);
+        assert_eq!(app.delete_confirm, Some(target_contacts_idx));
+        app.update(Message::ConfirmDeleteYes);
+
+        assert!(
+            !app.contacts.iter().any(|cf| cf.contact.name == deleted_name),
+            "deleted contact should be gone"
+        );
+        let selected_row = app.table_state.selected().expect("a row should stay selected");
+        let selected_id = app.contacts[app.filtered[selected_row]].contact.id.clone();
+        assert_eq!(
+            selected_id, expected_neighbor_id,
+            "selection should land on the deleted row's sorted-view neighbor"
+        );
+    }
+
+    /// Same as above, but deleting the *last* row in the sorted view, which
+    /// has no "next" neighbor -- selection should fall back to the previous
+    /// row instead.
+    #[test]
+    fn delete_last_sorted_row_selects_previous_neighbor() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut app = setup_sorted_by_priority(tmp.path());
+
+        let target_row = app.filtered.len() - 1;
+        let target_contacts_idx = app.filtered[target_row];
+        let expected_neighbor_id = app.contacts[app.filtered[target_row - 1]].contact.id.clone();
+
+        app.table_state.select(Some(target_row));
+        app.update(Message::StartDeleteConfirm);
+        app.update(Message::ConfirmDeleteYes);
+
+        let selected_row = app.table_state.selected().expect("a row should stay selected");
+        let selected_id = app.contacts[app.filtered[selected_row]].contact.id.clone();
+        assert_eq!(selected_id, expected_neighbor_id);
+    }
+
+    /// Editing a contact in a way that changes its sort position (priority,
+    /// while sorted by priority) must keep that same contact selected at its
+    /// *new* position, not wherever it used to be.
+    #[test]
+    fn edit_under_active_sort_follows_contact_to_new_position() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut app = setup_sorted_by_priority(tmp.path());
+
+        let charlie_contacts_idx = app
+            .contacts
+            .iter()
+            .position(|cf| cf.contact.name == "Priority Charlie")
+            .unwrap();
+        let charlie_id = app.contacts[charlie_contacts_idx].contact.id.clone();
+        let charlie_row_before = app
+            .filtered
+            .iter()
+            .position(|&i| i == charlie_contacts_idx)
+            .unwrap();
+        app.table_state.select(Some(charlie_row_before));
+
+        // Charlie starts at "low" (sorts last); bump to "high" (sorts first)
+        // -- a real move, not a no-op re-sort.
+        app.apply_field_edit(charlie_contacts_idx, "priority", "high");
+
+        let selected_row = app.table_state.selected().expect("a row should stay selected");
+        let selected_idx = app.filtered[selected_row];
+        assert_eq!(
+            app.contacts[selected_idx].contact.id, charlie_id,
+            "selection should follow Charlie to his new sorted position"
+        );
+        assert_eq!(app.contacts[selected_idx].contact.priority, Some(Priority::High));
+        // Charlie (now High) ties on priority with Alpha (already High); the
+        // stable sort's tie-break depends on load_all_contacts's WalkDir
+        // order, which isn't guaranteed -- so only assert he moved into the
+        // High group (row 0 or 1), not a specific one of the two.
+        assert!(
+            selected_row <= 1,
+            "Charlie should now sort among the High-priority contacts (row 0 or 1), got row {selected_row}"
+        );
+    }
+
+    /// `reload_contacts(None)` while `Screen::ContactDetail` points at an
+    /// index that's now out of bounds must fall back to the list rather than
+    /// leave a dangling index -- `contact_detail::draw_contact_detail`
+    /// indexes `app.contacts` with it directly, unchecked, so a stale
+    /// out-of-bounds index would panic on the next render.
+    #[test]
+    fn reload_with_no_keep_id_falls_back_to_list_when_detail_index_out_of_bounds() {
+        let tmp = tempfile::tempdir().unwrap();
+        scaffold(tmp.path());
+        ops::contact::add(tmp.path(), "Solo Contact").unwrap();
+
+        let contacts = store::load_all_contacts(tmp.path()).unwrap();
+        let mut app = bare_app(tmp.path(), contacts);
+        // Point the detail screen past the end of the (soon-to-be-empty) list.
+        app.screen = Screen::ContactDetail(5);
+
+        app.reload_contacts(None).unwrap();
+
+        assert_eq!(
+            app.screen,
+            Screen::ContactList,
+            "an out-of-bounds detail index must fall back to the list, not panic on next render"
+        );
     }
 }

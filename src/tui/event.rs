@@ -1,4 +1,4 @@
-use ratatui::crossterm::event::{KeyCode, KeyEvent};
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::app::{App, CreateContactField, InputMode, LogField, Message, Screen, VimMode};
 
@@ -126,6 +126,14 @@ pub fn handle_key(app: &App, key: KeyEvent) -> Option<Message> {
                 KeyCode::Char('q') => Some(Message::Quit),
                 KeyCode::Char('j') | KeyCode::Down => Some(Message::SelectNext),
                 KeyCode::Char('k') | KeyCode::Up => Some(Message::SelectPrev),
+                KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    Some(Message::PageUp)
+                }
+                KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    Some(Message::PageDown)
+                }
+                KeyCode::Char('g') => Some(Message::GoToTop),
+                KeyCode::Char('G') => Some(Message::GoToBottom),
                 KeyCode::Enter => Some(Message::Enter),
                 KeyCode::Char('/') => Some(Message::StartSearch),
                 KeyCode::Char('d') => Some(Message::SwitchToDashboard),

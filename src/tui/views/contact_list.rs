@@ -157,6 +157,10 @@ pub fn draw_contact_list(frame: &mut Frame, app: &mut App) {
         Paragraph::new(Line::from(vec![
             Span::styled("[j/k]", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(" Nav  "),
+            Span::styled("[^u/^d]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Page  "),
+            Span::styled("[g/G]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" Top/Bot  "),
             Span::styled("[Enter]", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(" Details  "),
             Span::styled("[/]", Style::default().add_modifier(Modifier::BOLD)),
