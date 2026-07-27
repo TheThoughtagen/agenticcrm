@@ -239,10 +239,11 @@ impl LogModalState {
 /// contact-list quick filters (where index 0 means "show all"). Values after
 /// index 0 are the exact serde wire values `ops::contact::edit`'s `key=value`
 /// sets expect, so they can be passed straight through.
-pub const RELATIONSHIP_OPTIONS: [&str; 11] = [
+pub const RELATIONSHIP_OPTIONS: [&str; 13] = [
     "(unset)",
     "friend",
     "colleague",
+    "former_colleague",
     "client",
     "mentor",
     "mentee",
@@ -250,6 +251,7 @@ pub const RELATIONSHIP_OPTIONS: [&str; 11] = [
     "family",
     "neighbor",
     "family_friend",
+    "network",
     "other",
 ];
 pub const STATUS_OPTIONS: [&str; 5] = ["(unset)", "active", "dormant", "lost-touch", "archived"];
@@ -1290,14 +1292,16 @@ fn next_relationship(current: Option<Relationship>) -> Relationship {
     match current {
         None | Some(Relationship::Other) => Relationship::Friend,
         Some(Relationship::Friend) => Relationship::Colleague,
-        Some(Relationship::Colleague) => Relationship::Client,
+        Some(Relationship::Colleague) => Relationship::FormerColleague,
+        Some(Relationship::FormerColleague) => Relationship::Client,
         Some(Relationship::Client) => Relationship::Mentor,
         Some(Relationship::Mentor) => Relationship::Mentee,
         Some(Relationship::Mentee) => Relationship::Acquaintance,
         Some(Relationship::Acquaintance) => Relationship::Family,
         Some(Relationship::Family) => Relationship::Neighbor,
         Some(Relationship::Neighbor) => Relationship::FamilyFriend,
-        Some(Relationship::FamilyFriend) => Relationship::Other,
+        Some(Relationship::FamilyFriend) => Relationship::Network,
+        Some(Relationship::Network) => Relationship::Other,
     }
 }
 
@@ -1305,6 +1309,7 @@ fn relationship_wire_value(r: Relationship) -> &'static str {
     match r {
         Relationship::Friend => "friend",
         Relationship::Colleague => "colleague",
+        Relationship::FormerColleague => "former_colleague",
         Relationship::Client => "client",
         Relationship::Mentor => "mentor",
         Relationship::Mentee => "mentee",
@@ -1312,6 +1317,7 @@ fn relationship_wire_value(r: Relationship) -> &'static str {
         Relationship::Family => "family",
         Relationship::Neighbor => "neighbor",
         Relationship::FamilyFriend => "family_friend",
+        Relationship::Network => "network",
         Relationship::Other => "other",
     }
 }
@@ -1320,6 +1326,7 @@ fn relationship_from_wire(value: &str) -> Option<Relationship> {
     match value {
         "friend" => Some(Relationship::Friend),
         "colleague" => Some(Relationship::Colleague),
+        "former_colleague" => Some(Relationship::FormerColleague),
         "client" => Some(Relationship::Client),
         "mentor" => Some(Relationship::Mentor),
         "mentee" => Some(Relationship::Mentee),
@@ -1327,6 +1334,7 @@ fn relationship_from_wire(value: &str) -> Option<Relationship> {
         "family" => Some(Relationship::Family),
         "neighbor" => Some(Relationship::Neighbor),
         "family_friend" => Some(Relationship::FamilyFriend),
+        "network" => Some(Relationship::Network),
         "other" => Some(Relationship::Other),
         _ => None,
     }

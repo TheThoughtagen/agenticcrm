@@ -335,6 +335,7 @@ fn format_relationship(rel: &Relationship) -> &'static str {
     match rel {
         Relationship::Friend => "Friend",
         Relationship::Colleague => "Colleague",
+        Relationship::FormerColleague => "Former Colleague",
         Relationship::Client => "Client",
         Relationship::Mentor => "Mentor",
         Relationship::Mentee => "Mentee",
@@ -342,6 +343,7 @@ fn format_relationship(rel: &Relationship) -> &'static str {
         Relationship::Family => "Family",
         Relationship::Neighbor => "Neighbor",
         Relationship::FamilyFriend => "Family Friend",
+        Relationship::Network => "Network",
         Relationship::Other => "Other",
     }
 }

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub enum Relationship {
     Friend,
     Colleague,
+    FormerColleague,
     Client,
     Mentor,
     Mentee,
@@ -13,6 +14,7 @@ pub enum Relationship {
     Family,
     Neighbor,
     FamilyFriend,
+    Network,
     Other,
 }
 

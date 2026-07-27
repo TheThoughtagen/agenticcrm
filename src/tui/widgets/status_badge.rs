@@ -54,6 +54,7 @@ pub fn format_relationship(relationship: &Option<Relationship>) -> &'static str 
     match relationship {
         Some(Relationship::Friend) => "Friend",
         Some(Relationship::Colleague) => "Colleague",
+        Some(Relationship::FormerColleague) => "Former Colleague",
         Some(Relationship::Client) => "Client",
         Some(Relationship::Mentor) => "Mentor",
         Some(Relationship::Mentee) => "Mentee",
@@ -61,6 +62,7 @@ pub fn format_relationship(relationship: &Option<Relationship>) -> &'static str 
         Some(Relationship::Family) => "Family",
         Some(Relationship::Neighbor) => "Neighbor",
         Some(Relationship::FamilyFriend) => "Family Friend",
+        Some(Relationship::Network) => "Network",
         Some(Relationship::Other) => "Other",
         None => "",
     }
