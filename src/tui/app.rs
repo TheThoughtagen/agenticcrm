@@ -911,14 +911,36 @@ impl App {
             Message::ConfirmDeleteYes => {
                 if let Some(idx) = self.delete_confirm {
                     let name = self.contacts[idx].contact.name.clone();
-                    match self.perform_delete(&name) {
+
+                    // Pick whichever contact should end up selected afterward: the
+                    // next row in the *current* filtered/sorted view, or the
+                    // previous one if this was the last row. Resolving this now
+                    // (by id, not position) is what keeps the post-delete
+                    // selection landing on a sensible neighbor instead of
+                    // whatever contact happens to occupy the deleted contact's
+                    // old numeric index once the list is reloaded and re-sorted.
+                    let next_selected_id = self
+                        .filtered
+                        .iter()
+                        .position(|&i| i == idx)
+                        .and_then(|row| {
+                            self.filtered
+                                .get(row + 1)
+                                .or_else(|| row.checked_sub(1).and_then(|r| self.filtered.get(r)))
+                        })
+                        .map(|&i| self.contacts[i].contact.id.clone());
+
+                    // Leave the detail pane before deleting: there's nothing left
+                    // to show for the contact just deleted, and doing this first
+                    // (rather than after) keeps reload_contacts() from trying to
+                    // re-point the detail screen at the neighbor above instead.
+                    if self.screen == Screen::ContactDetail(idx) {
+                        self.screen = Screen::ContactList;
+                    }
+
+                    match self.perform_delete(&name, next_selected_id.as_deref()) {
                         Ok(()) => {
                             self.status_message = Some(format!("Deleted {}", name));
-                            // The contact just vanished from self.contacts; if we were
-                            // looking at its detail pane, there's nothing left to show.
-                            if self.screen == Screen::ContactDetail(idx) {
-                                self.screen = Screen::ContactList;
-                            }
                         }
                         Err(e) => {
                             self.status_message = Some(format!("Error: {}", e));
@@ -1078,13 +1100,19 @@ impl App {
     /// Delete a contact by name (TUI-safe: no interactive stdin prompt, unlike
     /// the CLI's `acrm delete`). Confirmation already happened via the
     /// ConfirmDelete modal before this is called.
-    fn perform_delete(&mut self, name: &str) -> anyhow::Result<()> {
+    fn perform_delete(
+        &mut self,
+        name: &str,
+        keep_contact_id: Option<&str>,
+    ) -> anyhow::Result<()> {
         ops::contact::confirm_delete(&self.crm_root, name)
             .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        // The deleted contact's id will never be found post-reload, so
-        // filter_contacts()'s own fallback selection (nearest remaining row) applies.
-        self.reload_contacts(None)?;
+        // keep_contact_id is the neighbor picked before the delete (see
+        // ConfirmDeleteYes), not the deleted contact itself -- that one's
+        // gone, so if the caller passes None, filter_contacts()'s own
+        // fallback selection (nearest remaining row by stale index) applies.
+        self.reload_contacts(keep_contact_id)?;
 
         Ok(())
     }
@@ -1481,6 +1509,149 @@ mod reload_contacts_tests {
         assert_eq!(
             app.contacts[selected_contacts_idx].contact.id, bob_id,
             "list selection must still highlight Bob after the reload"
+        );
+    }
+
+    /// Four contacts, sorted by priority, for the sort-interaction tests
+    /// below (delete/edit while a non-default `SortMode` is active).
+    fn setup_sorted_by_priority(tmp: &std::path::Path) -> App {
+        std::fs::create_dir_all(tmp.join("contacts")).unwrap();
+        std::fs::create_dir_all(tmp.join("templates")).unwrap();
+        std::fs::copy(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/templates/contact.md"),
+            tmp.join("templates/contact.md"),
+        )
+        .unwrap();
+
+        for (name, priority) in [
+            ("Priority Alpha", "high"),
+            ("Priority Bravo", "medium"),
+            ("Priority Charlie", "low"),
+            ("Priority Delta", "medium"),
+        ] {
+            ops::contact::add(tmp, name).unwrap();
+            ops::contact::edit(tmp, name, &[format!("priority={priority}")]).unwrap();
+        }
+
+        let contacts = store::load_all_contacts(tmp).unwrap();
+        let filtered: Vec<usize> = (0..contacts.len()).collect();
+
+        let mut app = App {
+            contacts,
+            filtered,
+            screen: Screen::ContactList,
+            input_mode: InputMode::Normal,
+            search_query: String::new(),
+            table_state: TableState::default(),
+            dashboard_state: TableState::default(),
+            log_modal: None,
+            create_contact_modal: None,
+            edit_contact_modal: None,
+            delete_confirm: None,
+            status_message: None,
+            running: true,
+            crm_root: tmp.to_path_buf(),
+            status_filter_index: 0,
+            priority_filter_index: 0,
+            relationship_filter_index: 0,
+            sort_mode: SortMode::Priority,
+        };
+        app.filter_contacts(); // apply the priority sort to `filtered`
+        app
+    }
+
+    /// Deleting a row while sorted must select the contact that was its
+    /// *sorted-view* neighbor, not an arbitrary contact that happens to land
+    /// on the deleted row's old numeric index after `load_all_contacts`
+    /// reloads (via unsorted `WalkDir`) and `filter_contacts` re-sorts.
+    #[test]
+    fn delete_under_active_sort_selects_sorted_neighbor() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut app = setup_sorted_by_priority(tmp.path());
+
+        // Target a row with a next neighbor in the sorted view (not the last row).
+        let target_row = 1;
+        let target_contacts_idx = app.filtered[target_row];
+        let expected_neighbor_id = app.contacts[app.filtered[target_row + 1]].contact.id.clone();
+        let deleted_name = app.contacts[target_contacts_idx].contact.name.clone();
+
+        app.table_state.select(Some(target_row));
+        app.update(Message::StartDeleteConfirm);
+        assert_eq!(app.delete_confirm, Some(target_contacts_idx));
+        app.update(Message::ConfirmDeleteYes);
+
+        assert!(
+            !app.contacts.iter().any(|cf| cf.contact.name == deleted_name),
+            "deleted contact should be gone"
+        );
+        let selected_row = app.table_state.selected().expect("a row should stay selected");
+        let selected_id = app.contacts[app.filtered[selected_row]].contact.id.clone();
+        assert_eq!(
+            selected_id, expected_neighbor_id,
+            "selection should land on the deleted row's sorted-view neighbor"
+        );
+    }
+
+    /// Same as above, but deleting the *last* row in the sorted view, which
+    /// has no "next" neighbor -- selection should fall back to the previous
+    /// row instead.
+    #[test]
+    fn delete_last_sorted_row_selects_previous_neighbor() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut app = setup_sorted_by_priority(tmp.path());
+
+        let target_row = app.filtered.len() - 1;
+        let target_contacts_idx = app.filtered[target_row];
+        let expected_neighbor_id = app.contacts[app.filtered[target_row - 1]].contact.id.clone();
+
+        app.table_state.select(Some(target_row));
+        app.update(Message::StartDeleteConfirm);
+        app.update(Message::ConfirmDeleteYes);
+
+        let selected_row = app.table_state.selected().expect("a row should stay selected");
+        let selected_id = app.contacts[app.filtered[selected_row]].contact.id.clone();
+        assert_eq!(selected_id, expected_neighbor_id);
+    }
+
+    /// Editing a contact in a way that changes its sort position (priority,
+    /// while sorted by priority) must keep that same contact selected at its
+    /// *new* position, not wherever it used to be.
+    #[test]
+    fn edit_under_active_sort_follows_contact_to_new_position() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut app = setup_sorted_by_priority(tmp.path());
+
+        let charlie_contacts_idx = app
+            .contacts
+            .iter()
+            .position(|cf| cf.contact.name == "Priority Charlie")
+            .unwrap();
+        let charlie_id = app.contacts[charlie_contacts_idx].contact.id.clone();
+        let charlie_row_before = app
+            .filtered
+            .iter()
+            .position(|&i| i == charlie_contacts_idx)
+            .unwrap();
+        app.table_state.select(Some(charlie_row_before));
+
+        // Charlie starts at "low" (sorts last); bump to "high" (sorts first)
+        // -- a real move, not a no-op re-sort.
+        app.apply_field_edit(charlie_contacts_idx, "priority", "high");
+
+        let selected_row = app.table_state.selected().expect("a row should stay selected");
+        let selected_idx = app.filtered[selected_row];
+        assert_eq!(
+            app.contacts[selected_idx].contact.id, charlie_id,
+            "selection should follow Charlie to his new sorted position"
+        );
+        assert_eq!(app.contacts[selected_idx].contact.priority, Some(Priority::High));
+        // Charlie (now High) ties on priority with Alpha (already High); the
+        // stable sort's tie-break depends on load_all_contacts's WalkDir
+        // order, which isn't guaranteed -- so only assert he moved into the
+        // High group (row 0 or 1), not a specific one of the two.
+        assert!(
+            selected_row <= 1,
+            "Charlie should now sort among the High-priority contacts (row 0 or 1), got row {selected_row}"
         );
     }
 }
