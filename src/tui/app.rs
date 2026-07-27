@@ -47,6 +47,10 @@ pub enum VimMode {
 /// of "half a page" rather than computed from the actual visible area.
 const HALF_PAGE_LINES: usize = 10;
 
+/// Rows moved by `Ctrl+u`/`Ctrl+d` in the contact list, for the same reason
+/// (and with the same fixed approximation) as `HALF_PAGE_LINES` above.
+const LIST_PAGE_ROWS: usize = 10;
+
 pub struct LogModalState {
     pub contact_idx: usize,
     pub interaction_type: String,
@@ -433,6 +437,10 @@ pub enum Message {
     Quit,
     SelectNext,
     SelectPrev,
+    PageUp,
+    PageDown,
+    GoToTop,
+    GoToBottom,
     Enter,
     Back,
     StartSearch,
@@ -575,6 +583,41 @@ impl App {
                     None => 0,
                 };
                 self.table_state.select(Some(i));
+            }
+            Message::PageDown => {
+                if self.filtered.is_empty() {
+                    return;
+                }
+                let i = self
+                    .table_state
+                    .selected()
+                    .unwrap_or(0)
+                    .saturating_add(LIST_PAGE_ROWS)
+                    .min(self.filtered.len() - 1);
+                self.table_state.select(Some(i));
+            }
+            Message::PageUp => {
+                if self.filtered.is_empty() {
+                    return;
+                }
+                let i = self
+                    .table_state
+                    .selected()
+                    .unwrap_or(0)
+                    .saturating_sub(LIST_PAGE_ROWS);
+                self.table_state.select(Some(i));
+            }
+            Message::GoToTop => {
+                if self.filtered.is_empty() {
+                    return;
+                }
+                self.table_state.select(Some(0));
+            }
+            Message::GoToBottom => {
+                if self.filtered.is_empty() {
+                    return;
+                }
+                self.table_state.select(Some(self.filtered.len() - 1));
             }
             Message::Enter => {
                 if self.screen == Screen::ContactList {
@@ -1250,6 +1293,94 @@ fn relationship_from_wire(value: &str) -> Option<Relationship> {
         "family" => Some(Relationship::Family),
         "other" => Some(Relationship::Other),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod list_nav_tests {
+    use super::*;
+
+    /// A bare `App` with `n` synthetic rows and nothing on disk -- page/top/
+    /// bottom navigation only touches `filtered`/`table_state`, not contact
+    /// content, so no real contact files are needed here.
+    fn app_with_rows(n: usize, selected: usize) -> App {
+        let filtered: Vec<usize> = (0..n).collect();
+        let mut table_state = TableState::default();
+        table_state.select(Some(selected));
+
+        App {
+            contacts: Vec::new(),
+            filtered,
+            screen: Screen::ContactList,
+            input_mode: InputMode::Normal,
+            search_query: String::new(),
+            table_state,
+            dashboard_state: TableState::default(),
+            log_modal: None,
+            create_contact_modal: None,
+            edit_contact_modal: None,
+            delete_confirm: None,
+            status_message: None,
+            running: true,
+            crm_root: PathBuf::new(),
+            status_filter_index: 0,
+            priority_filter_index: 0,
+            relationship_filter_index: 0,
+            sort_mode: SortMode::Default,
+        }
+    }
+
+    #[test]
+    fn page_down_moves_by_page_and_clamps_to_last_row() {
+        let mut app = app_with_rows(15, 0);
+        app.update(Message::PageDown);
+        assert_eq!(app.table_state.selected(), Some(LIST_PAGE_ROWS));
+
+        app.update(Message::PageDown);
+        assert_eq!(
+            app.table_state.selected(),
+            Some(14),
+            "a second page-down should clamp to the last row, not overshoot"
+        );
+    }
+
+    #[test]
+    fn page_up_moves_by_page_and_clamps_to_first_row() {
+        let mut app = app_with_rows(15, 14);
+        app.update(Message::PageUp);
+        assert_eq!(app.table_state.selected(), Some(14 - LIST_PAGE_ROWS));
+
+        app.update(Message::PageUp);
+        assert_eq!(
+            app.table_state.selected(),
+            Some(0),
+            "a second page-up should clamp to the first row, not underflow"
+        );
+    }
+
+    #[test]
+    fn go_to_top_and_bottom() {
+        let mut app = app_with_rows(15, 7);
+        app.update(Message::GoToTop);
+        assert_eq!(app.table_state.selected(), Some(0));
+
+        app.update(Message::GoToBottom);
+        assert_eq!(app.table_state.selected(), Some(14));
+    }
+
+    #[test]
+    fn nav_on_empty_list_is_a_no_op() {
+        let mut app = app_with_rows(0, 0);
+        app.table_state.select(None);
+        for msg in [
+            Message::PageDown,
+            Message::PageUp,
+            Message::GoToTop,
+            Message::GoToBottom,
+        ] {
+            app.update(msg);
+            assert_eq!(app.table_state.selected(), None);
+        }
     }
 }
 
