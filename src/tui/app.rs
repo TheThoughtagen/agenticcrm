@@ -933,6 +933,32 @@ impl App {
         }
     }
 
+    /// Reload contacts from disk after a mutation, then re-select the same
+    /// contact by its stable `id` rather than its position in the reloaded
+    /// list. `store::load_all_contacts` walks the contacts directory via
+    /// `WalkDir` with no sort, so its order is not guaranteed stable across
+    /// calls -- a raw index captured before a reload can silently point at a
+    /// different contact afterward. Also re-points `Screen::ContactDetail`
+    /// at the same contact's new index, so editing-then-saving in the detail
+    /// pane doesn't leave you looking at (or next editing) the wrong person.
+    fn reload_contacts(&mut self, keep_contact_id: Option<&str>) -> anyhow::Result<()> {
+        self.contacts = store::load_all_contacts(&self.crm_root)?;
+        self.filter_contacts();
+
+        if let Some(id) = keep_contact_id {
+            if let Some(new_idx) = self.contacts.iter().position(|cf| cf.contact.id == id) {
+                if let Screen::ContactDetail(_) = self.screen {
+                    self.screen = Screen::ContactDetail(new_idx);
+                }
+                if let Some(row) = self.filtered.iter().position(|&i| i == new_idx) {
+                    self.table_state.select(Some(row));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Log an interaction without printing to stdout (TUI-safe).
     /// Delegates to ops::contact::log_interaction for all file manipulation.
     fn submit_log(
@@ -941,15 +967,13 @@ impl App {
         summary: &str,
         contact_idx: usize,
     ) -> anyhow::Result<()> {
+        let id = self.contacts[contact_idx].contact.id.clone();
         let name = &self.contacts[contact_idx].contact.name;
 
         ops::contact::log_interaction(&self.crm_root, name, interaction_type, summary, None)
             .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        // Reload contacts to pick up changes
-        let contacts = store::load_all_contacts(&self.crm_root)?;
-        self.contacts = contacts;
-        self.filter_contacts();
+        self.reload_contacts(Some(&id))?;
 
         Ok(())
     }
@@ -965,9 +989,7 @@ impl App {
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
         }
 
-        let contacts = store::load_all_contacts(&self.crm_root)?;
-        self.contacts = contacts;
-        self.filter_contacts();
+        self.reload_contacts(None)?;
 
         Ok(())
     }
@@ -976,12 +998,11 @@ impl App {
     /// index into `self.contacts`), reload, and return its name. Used by the
     /// Edit Contact modal (Company/Email/Phone/Birthday).
     fn apply_edit_sets(&mut self, contact_idx: usize, sets: &[String]) -> anyhow::Result<String> {
+        let id = self.contacts[contact_idx].contact.id.clone();
         let name = self.contacts[contact_idx].contact.name.clone();
         ops::contact::edit(&self.crm_root, &name, sets).map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        let contacts = store::load_all_contacts(&self.crm_root)?;
-        self.contacts = contacts;
-        self.filter_contacts();
+        self.reload_contacts(Some(&id))?;
 
         Ok(name)
     }
@@ -990,17 +1011,19 @@ impl App {
     /// `self.contacts`) and reload. Used by the Contact Detail pane's quick
     /// status/priority/relationship cycle keys.
     fn apply_field_edit(&mut self, contact_idx: usize, field: &str, value: &str) {
+        let id = self.contacts[contact_idx].contact.id.clone();
         let name = self.contacts[contact_idx].contact.name.clone();
         let set = format!("{field}={value}");
-        match ops::contact::edit(&self.crm_root, &name, &[set])
-            .map_err(|e| anyhow::anyhow!("{}", e))
-            .and_then(|_| Ok(store::load_all_contacts(&self.crm_root)?))
+        match ops::contact::edit(&self.crm_root, &name, &[set]).map_err(|e| anyhow::anyhow!("{}", e))
         {
-            Ok(contacts) => {
-                self.contacts = contacts;
-                self.filter_contacts();
-                self.status_message = Some(format!("{} -> {}", field, value));
-            }
+            Ok(_) => match self.reload_contacts(Some(&id)) {
+                Ok(()) => {
+                    self.status_message = Some(format!("{} -> {}", field, value));
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Error: {}", e));
+                }
+            },
             Err(e) => {
                 self.status_message = Some(format!("Error: {}", e));
             }
@@ -1014,9 +1037,9 @@ impl App {
         ops::contact::confirm_delete(&self.crm_root, name)
             .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        let contacts = store::load_all_contacts(&self.crm_root)?;
-        self.contacts = contacts;
-        self.filter_contacts();
+        // The deleted contact's id will never be found post-reload, so
+        // filter_contacts()'s own fallback selection (nearest remaining row) applies.
+        self.reload_contacts(None)?;
 
         Ok(())
     }
@@ -1227,5 +1250,98 @@ fn relationship_from_wire(value: &str) -> Option<Relationship> {
         "family" => Some(Relationship::Family),
         "other" => Some(Relationship::Other),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod reload_contacts_tests {
+    use super::*;
+
+    /// Builds an isolated CRM root (own contacts/ + templates/) with three
+    /// contacts, and an `App` pointed at it with the detail screen open on
+    /// the second one.
+    fn setup(tmp: &std::path::Path) -> App {
+        std::fs::create_dir_all(tmp.join("contacts")).unwrap();
+        std::fs::create_dir_all(tmp.join("templates")).unwrap();
+        std::fs::copy(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/templates/contact.md"),
+            tmp.join("templates/contact.md"),
+        )
+        .unwrap();
+
+        for name in ["Alice Anderson", "Bob Baker", "Carol Chen"] {
+            ops::contact::add(tmp, name).unwrap();
+        }
+
+        let contacts = store::load_all_contacts(tmp).unwrap();
+        let filtered: Vec<usize> = (0..contacts.len()).collect();
+        let bob_idx = contacts
+            .iter()
+            .position(|cf| cf.contact.name == "Bob Baker")
+            .unwrap();
+
+        let mut table_state = TableState::default();
+        table_state.select(Some(bob_idx));
+
+        App {
+            contacts,
+            filtered,
+            screen: Screen::ContactDetail(bob_idx),
+            input_mode: InputMode::Normal,
+            search_query: String::new(),
+            table_state,
+            dashboard_state: TableState::default(),
+            log_modal: None,
+            create_contact_modal: None,
+            edit_contact_modal: None,
+            delete_confirm: None,
+            status_message: None,
+            running: true,
+            crm_root: tmp.to_path_buf(),
+            status_filter_index: 0,
+            priority_filter_index: 0,
+            relationship_filter_index: 0,
+            sort_mode: SortMode::Default,
+        }
+    }
+
+    /// After editing a contact and reloading, both the detail screen and the
+    /// list selection must still point at that same contact by identity --
+    /// not by the position it happened to occupy before the reload, since
+    /// `load_all_contacts` (`WalkDir`, unsorted) offers no ordering guarantee
+    /// across calls.
+    #[test]
+    fn edit_keeps_same_contact_selected_after_reload() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut app = setup(tmp.path());
+
+        let bob_idx_before = match app.screen {
+            Screen::ContactDetail(i) => i,
+            _ => panic!("expected ContactDetail"),
+        };
+        let bob_id = app.contacts[bob_idx_before].contact.id.clone();
+
+        app.apply_field_edit(bob_idx_before, "priority", "high");
+
+        let bob_idx_after = match app.screen {
+            Screen::ContactDetail(i) => i,
+            _ => panic!("expected ContactDetail after edit"),
+        };
+        assert_eq!(
+            app.contacts[bob_idx_after].contact.id, bob_id,
+            "detail screen must still point at Bob after the reload, regardless of his new position"
+        );
+        assert_eq!(app.contacts[bob_idx_after].contact.name, "Bob Baker");
+        assert_eq!(
+            app.contacts[bob_idx_after].contact.priority,
+            Some(Priority::High)
+        );
+
+        let selected_row = app.table_state.selected().unwrap();
+        let selected_contacts_idx = app.filtered[selected_row];
+        assert_eq!(
+            app.contacts[selected_contacts_idx].contact.id, bob_id,
+            "list selection must still highlight Bob after the reload"
+        );
     }
 }
