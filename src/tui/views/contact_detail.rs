@@ -340,6 +340,8 @@ fn format_relationship(rel: &Relationship) -> &'static str {
         Relationship::Mentee => "Mentee",
         Relationship::Acquaintance => "Acquaintance",
         Relationship::Family => "Family",
+        Relationship::Neighbor => "Neighbor",
+        Relationship::FamilyFriend => "Family Friend",
         Relationship::Other => "Other",
     }
 }

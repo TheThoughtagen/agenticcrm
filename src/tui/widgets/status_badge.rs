@@ -59,6 +59,8 @@ pub fn format_relationship(relationship: &Option<Relationship>) -> &'static str 
         Some(Relationship::Mentee) => "Mentee",
         Some(Relationship::Acquaintance) => "Acquaintance",
         Some(Relationship::Family) => "Family",
+        Some(Relationship::Neighbor) => "Neighbor",
+        Some(Relationship::FamilyFriend) => "Family Friend",
         Some(Relationship::Other) => "Other",
         None => "",
     }

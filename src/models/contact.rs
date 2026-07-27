@@ -11,6 +11,8 @@ pub enum Relationship {
     Mentee,
     Acquaintance,
     Family,
+    Neighbor,
+    FamilyFriend,
     Other,
 }
 

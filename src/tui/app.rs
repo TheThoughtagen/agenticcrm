@@ -239,7 +239,7 @@ impl LogModalState {
 /// contact-list quick filters (where index 0 means "show all"). Values after
 /// index 0 are the exact serde wire values `ops::contact::edit`'s `key=value`
 /// sets expect, so they can be passed straight through.
-pub const RELATIONSHIP_OPTIONS: [&str; 9] = [
+pub const RELATIONSHIP_OPTIONS: [&str; 11] = [
     "(unset)",
     "friend",
     "colleague",
@@ -248,6 +248,8 @@ pub const RELATIONSHIP_OPTIONS: [&str; 9] = [
     "mentee",
     "acquaintance",
     "family",
+    "neighbor",
+    "family_friend",
     "other",
 ];
 pub const STATUS_OPTIONS: [&str; 5] = ["(unset)", "active", "dormant", "lost-touch", "archived"];
@@ -1265,7 +1267,9 @@ fn next_relationship(current: Option<Relationship>) -> Relationship {
         Some(Relationship::Mentor) => Relationship::Mentee,
         Some(Relationship::Mentee) => Relationship::Acquaintance,
         Some(Relationship::Acquaintance) => Relationship::Family,
-        Some(Relationship::Family) => Relationship::Other,
+        Some(Relationship::Family) => Relationship::Neighbor,
+        Some(Relationship::Neighbor) => Relationship::FamilyFriend,
+        Some(Relationship::FamilyFriend) => Relationship::Other,
     }
 }
 
@@ -1278,6 +1282,8 @@ fn relationship_wire_value(r: Relationship) -> &'static str {
         Relationship::Mentee => "mentee",
         Relationship::Acquaintance => "acquaintance",
         Relationship::Family => "family",
+        Relationship::Neighbor => "neighbor",
+        Relationship::FamilyFriend => "family_friend",
         Relationship::Other => "other",
     }
 }
@@ -1291,6 +1297,8 @@ fn relationship_from_wire(value: &str) -> Option<Relationship> {
         "mentee" => Some(Relationship::Mentee),
         "acquaintance" => Some(Relationship::Acquaintance),
         "family" => Some(Relationship::Family),
+        "neighbor" => Some(Relationship::Neighbor),
+        "family_friend" => Some(Relationship::FamilyFriend),
         "other" => Some(Relationship::Other),
         _ => None,
     }
